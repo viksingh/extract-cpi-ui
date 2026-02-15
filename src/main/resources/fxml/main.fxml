@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<VBox xmlns="http://javafx.com/javafx/21"
+      xmlns:fx="http://javafx.com/fxml/1"
+      fx:controller="com.sap.cpi.extractor.ui.MainController"
+      spacing="10" styleClass="root-container">
+
+    <padding><Insets top="15" right="15" bottom="15" left="15"/></padding>
+
+    <!-- Title -->
+    <Label text="SAP CPI Artifact Extractor" styleClass="app-title"/>
+
+    <!-- Connection Settings -->
+    <TitledPane text="Connection Settings" collapsible="false" styleClass="section-pane">
+        <GridPane hgap="10" vgap="8">
+            <padding><Insets top="10" right="10" bottom="10" left="10"/></padding>
+
+            <columnConstraints>
+                <ColumnConstraints minWidth="130" prefWidth="130"/>
+                <ColumnConstraints hgrow="ALWAYS" minWidth="200"/>
+                <ColumnConstraints minWidth="130" prefWidth="130"/>
+                <ColumnConstraints hgrow="ALWAYS" minWidth="200"/>
+            </columnConstraints>
+
+            <Label text="Tenant URL:" GridPane.columnIndex="0" GridPane.rowIndex="0"/>
+            <TextField fx:id="tenantUrlField" promptText="https://tenant.it-cpiXXX.cfapps.region.hana.ondemand.com"
+                       GridPane.columnIndex="1" GridPane.rowIndex="0" GridPane.columnSpan="3"/>
+
+            <Label text="Auth Type:" GridPane.columnIndex="0" GridPane.rowIndex="1"/>
+            <ComboBox fx:id="authTypeCombo" GridPane.columnIndex="1" GridPane.rowIndex="1"
+                      onAction="#onAuthTypeChanged"/>
+
+            <!-- OAuth2 fields -->
+            <Label fx:id="oauthTokenUrlLabel" text="OAuth2 Token URL:" GridPane.columnIndex="0" GridPane.rowIndex="2"/>
+            <TextField fx:id="oauthTokenUrlField" promptText="https://subdomain.authentication.region.hana.ondemand.com/oauth/token"
+                       GridPane.columnIndex="1" GridPane.rowIndex="2" GridPane.columnSpan="3"/>
+
+            <Label fx:id="oauthClientIdLabel" text="Client ID:" GridPane.columnIndex="0" GridPane.rowIndex="3"/>
+            <TextField fx:id="oauthClientIdField" GridPane.columnIndex="1" GridPane.rowIndex="3"/>
+
+            <Label fx:id="oauthClientSecretLabel" text="Client Secret:" GridPane.columnIndex="2" GridPane.rowIndex="3"/>
+            <PasswordField fx:id="oauthClientSecretField" GridPane.columnIndex="3" GridPane.rowIndex="3"/>
+
+            <!-- Basic auth fields (hidden by default) -->
+            <Label fx:id="basicUsernameLabel" text="Username:" GridPane.columnIndex="0" GridPane.rowIndex="4"
+                   visible="false" managed="false"/>
+            <TextField fx:id="basicUsernameField" GridPane.columnIndex="1" GridPane.rowIndex="4"
+                       visible="false" managed="false"/>
+
+            <Label fx:id="basicPasswordLabel" text="Password:" GridPane.columnIndex="2" GridPane.rowIndex="4"
+                   visible="false" managed="false"/>
+            <PasswordField fx:id="basicPasswordField" GridPane.columnIndex="3" GridPane.rowIndex="4"
+                           visible="false" managed="false"/>
+        </GridPane>
+    </TitledPane>
+
+    <!-- Extraction Options + Export Settings side by side -->
+    <HBox spacing="10">
+        <TitledPane text="Extraction Options" collapsible="false" styleClass="section-pane"
+                    HBox.hgrow="ALWAYS">
+            <VBox spacing="6">
+                <padding><Insets top="8" right="10" bottom="8" left="10"/></padding>
+                <CheckBox fx:id="extractPackagesCb" text="Packages" selected="true"/>
+                <CheckBox fx:id="extractFlowsCb" text="Integration Flows" selected="true"/>
+                <CheckBox fx:id="extractValueMappingsCb" text="Value Mappings" selected="true"/>
+                <CheckBox fx:id="extractConfigurationsCb" text="Configurations" selected="true"/>
+                <CheckBox fx:id="extractRuntimeCb" text="Runtime Status" selected="true"/>
+            </VBox>
+        </TitledPane>
+
+        <TitledPane text="Export Settings" collapsible="false" styleClass="section-pane"
+                    HBox.hgrow="ALWAYS">
+            <GridPane hgap="10" vgap="8">
+                <padding><Insets top="8" right="10" bottom="8" left="10"/></padding>
+                <columnConstraints>
+                    <ColumnConstraints minWidth="80" prefWidth="80"/>
+                    <ColumnConstraints hgrow="ALWAYS"/>
+                    <ColumnConstraints minWidth="30"/>
+                </columnConstraints>
+
+                <Label text="Format:" GridPane.columnIndex="0" GridPane.rowIndex="0"/>
+                <ComboBox fx:id="exportFormatCombo" GridPane.columnIndex="1" GridPane.rowIndex="0"
+                          GridPane.columnSpan="2" maxWidth="Infinity"/>
+
+                <Label text="Output:" GridPane.columnIndex="0" GridPane.rowIndex="1"/>
+                <TextField fx:id="outputDirField" text="./output" GridPane.columnIndex="1" GridPane.rowIndex="1"/>
+                <Button text="..." onAction="#onBrowseOutputDir" GridPane.columnIndex="2" GridPane.rowIndex="1"
+                        styleClass="browse-btn"/>
+
+                <Label text="Prefix:" GridPane.columnIndex="0" GridPane.rowIndex="2"/>
+                <TextField fx:id="filenamePrefixField" text="cpi_artifacts"
+                           GridPane.columnIndex="1" GridPane.rowIndex="2" GridPane.columnSpan="2"/>
+            </GridPane>
+        </TitledPane>
+    </HBox>
+
+    <!-- Action Buttons -->
+    <HBox spacing="10" alignment="CENTER_LEFT">
+        <Button text="Load Config File" onAction="#onLoadConfig" styleClass="action-btn"/>
+        <Button text="Save Config" onAction="#onSaveConfig" styleClass="action-btn"/>
+        <Region HBox.hgrow="ALWAYS"/>
+        <Button fx:id="extractButton" text="Extract &amp; Export" onAction="#onExtract"
+                styleClass="primary-btn"/>
+    </HBox>
+
+    <!-- Results TabPane -->
+    <TabPane fx:id="resultsTabPane" VBox.vgrow="ALWAYS" tabClosingPolicy="UNAVAILABLE"
+             styleClass="results-tabs">
+        <Tab text="Summary">
+            <TextArea fx:id="summaryTextArea" editable="false" wrapText="true"
+                      styleClass="summary-area"/>
+        </Tab>
+        <Tab text="Packages">
+            <TableView fx:id="packagesTable" styleClass="data-table"/>
+        </Tab>
+        <Tab text="Flows">
+            <TableView fx:id="flowsTable" styleClass="data-table"/>
+        </Tab>
+        <Tab text="Value Maps">
+            <TableView fx:id="valueMapsTable" styleClass="data-table"/>
+        </Tab>
+        <Tab text="Configs">
+            <TableView fx:id="configsTable" styleClass="data-table"/>
+        </Tab>
+        <Tab text="Runtime">
+            <TableView fx:id="runtimeTable" styleClass="data-table"/>
+        </Tab>
+    </TabPane>
+
+    <!-- Log Area + Progress -->
+    <VBox spacing="4" styleClass="log-section">
+        <HBox spacing="10" alignment="CENTER_LEFT">
+            <Label text="Log:" styleClass="log-label"/>
+            <ProgressBar fx:id="progressBar" prefWidth="300" progress="0" visible="false"/>
+            <Label fx:id="progressLabel" text="" styleClass="progress-label"/>
+        </HBox>
+        <TextArea fx:id="logTextArea" editable="false" wrapText="true" prefRowCount="4"
+                  styleClass="log-area"/>
+    </VBox>
+</VBox>

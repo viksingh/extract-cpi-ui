@@ -1,0 +1,216 @@
+/* SAP-inspired blue theme */
+
+.root-container {
+    -fx-background-color: #f5f6fa;
+}
+
+.app-title {
+    -fx-font-size: 20px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #0a6ed1;
+    -fx-padding: 0 0 5 0;
+}
+
+/* Section panes */
+.section-pane {
+    -fx-font-size: 13px;
+}
+
+.section-pane > .title {
+    -fx-font-weight: bold;
+    -fx-text-fill: #354a5f;
+}
+
+.section-pane > .content {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #d9d9d9;
+    -fx-border-radius: 3;
+    -fx-background-radius: 3;
+}
+
+/* Text fields */
+.text-field, .password-field {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #bfbfbf;
+    -fx-border-radius: 3;
+    -fx-background-radius: 3;
+    -fx-padding: 5 8;
+}
+
+.text-field:focused, .password-field:focused {
+    -fx-border-color: #0a6ed1;
+    -fx-effect: dropshadow(gaussian, rgba(10,110,209,0.2), 4, 0, 0, 0);
+}
+
+/* Combo boxes */
+.combo-box {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #bfbfbf;
+    -fx-border-radius: 3;
+    -fx-background-radius: 3;
+}
+
+/* Check boxes */
+.check-box {
+    -fx-font-size: 13px;
+}
+
+.check-box .box {
+    -fx-border-color: #bfbfbf;
+    -fx-border-radius: 2;
+    -fx-background-color: #ffffff;
+}
+
+.check-box:selected .box {
+    -fx-background-color: #0a6ed1;
+    -fx-border-color: #0a6ed1;
+}
+
+.check-box:selected .mark {
+    -fx-background-color: #ffffff;
+}
+
+/* Buttons */
+.action-btn {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #0a6ed1;
+    -fx-text-fill: #0a6ed1;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-padding: 6 16;
+    -fx-font-size: 13px;
+    -fx-cursor: hand;
+}
+
+.action-btn:hover {
+    -fx-background-color: #e8f0fe;
+}
+
+.primary-btn {
+    -fx-background-color: #0a6ed1;
+    -fx-text-fill: #ffffff;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-padding: 8 28;
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-cursor: hand;
+}
+
+.primary-btn:hover {
+    -fx-background-color: #0854a0;
+}
+
+.primary-btn:disabled {
+    -fx-background-color: #a0a0a0;
+    -fx-cursor: default;
+}
+
+.browse-btn {
+    -fx-background-color: #e8e8e8;
+    -fx-border-color: #bfbfbf;
+    -fx-border-radius: 3;
+    -fx-background-radius: 3;
+    -fx-padding: 5 10;
+    -fx-cursor: hand;
+}
+
+.browse-btn:hover {
+    -fx-background-color: #d0d0d0;
+}
+
+/* Results tabs */
+.results-tabs .tab-header-background {
+    -fx-background-color: #e8ecf0;
+}
+
+.results-tabs .tab {
+    -fx-background-color: #dde3ea;
+    -fx-background-radius: 4 4 0 0;
+    -fx-padding: 4 14;
+}
+
+.results-tabs .tab:selected {
+    -fx-background-color: #ffffff;
+}
+
+.results-tabs .tab .tab-label {
+    -fx-font-size: 12px;
+    -fx-text-fill: #354a5f;
+}
+
+.results-tabs .tab:selected .tab-label {
+    -fx-font-weight: bold;
+    -fx-text-fill: #0a6ed1;
+}
+
+/* Table views */
+.data-table {
+    -fx-border-color: #d9d9d9;
+}
+
+.data-table .column-header {
+    -fx-background-color: #354a5f;
+    -fx-padding: 6 8;
+}
+
+.data-table .column-header .label {
+    -fx-text-fill: #ffffff;
+    -fx-font-weight: bold;
+    -fx-font-size: 12px;
+}
+
+.data-table .table-row-cell:odd {
+    -fx-background-color: #f5f7fa;
+}
+
+.data-table .table-row-cell:even {
+    -fx-background-color: #ffffff;
+}
+
+.data-table .table-row-cell:selected {
+    -fx-background-color: #cce0ff;
+}
+
+/* Summary area */
+.summary-area {
+    -fx-font-family: "Consolas", "Courier New", monospace;
+    -fx-font-size: 13px;
+    -fx-control-inner-background: #ffffff;
+}
+
+/* Log section */
+.log-section {
+    -fx-padding: 5 0 0 0;
+}
+
+.log-label {
+    -fx-font-weight: bold;
+    -fx-text-fill: #354a5f;
+    -fx-font-size: 12px;
+}
+
+.progress-label {
+    -fx-font-size: 12px;
+    -fx-text-fill: #666666;
+}
+
+.log-area {
+    -fx-font-family: "Consolas", "Courier New", monospace;
+    -fx-font-size: 11px;
+    -fx-control-inner-background: #1e1e2e;
+    -fx-text-fill: #cdd6f4;
+    -fx-highlight-fill: #45475a;
+    -fx-highlight-text-fill: #cdd6f4;
+}
+
+/* Progress bar */
+.progress-bar .track {
+    -fx-background-color: #e0e0e0;
+    -fx-background-radius: 4;
+}
+
+.progress-bar .bar {
+    -fx-background-color: linear-gradient(to right, #0a6ed1, #1a8af0);
+    -fx-background-radius: 4;
+}
