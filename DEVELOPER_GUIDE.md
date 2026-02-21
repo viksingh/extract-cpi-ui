@@ -1,7 +1,7 @@
 # SAP CPI Artifact Extractor — Developer Guide
 
 > **Project:** `extract-cpi-ui`
-> **Package:** `com.sap.cpi.extractor`
+> **Package:** `com.sakiv.cpi.extractor`
 > **Java:** 17 | **JavaFX:** 21.0.2 | **Build:** Maven
 
 ---
@@ -564,7 +564,7 @@ Three appenders:
 - **FILE** — `logs/cpi-extractor.log` with full timestamps
 - **TEXTAREA** — custom `TextAreaLogAppender` with short format
 
-Logger levels: `com.sap.cpi.extractor` at DEBUG, `org.apache.http` at INFO.
+Logger levels: `com.sakiv.cpi.extractor` at DEBUG, `org.apache.http` at INFO.
 
 ### `main.fxml` (145 lines)
 

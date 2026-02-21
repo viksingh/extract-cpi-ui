@@ -13,13 +13,13 @@
         </encoder>
     </appender>
 
-    <appender name="TEXTAREA" class="com.sap.cpi.extractor.ui.TextAreaLogAppender">
+    <appender name="TEXTAREA" class="com.sakiv.cpi.extractor.ui.TextAreaLogAppender">
         <encoder>
             <pattern>%d{HH:mm:ss} [%-5level] %msg%n</pattern>
         </encoder>
     </appender>
 
-    <logger name="com.sap.cpi.extractor" level="DEBUG"/>
+    <logger name="com.sakiv.cpi.extractor" level="DEBUG"/>
     <logger name="org.apache.http" level="INFO"/>
 
     <root level="INFO">

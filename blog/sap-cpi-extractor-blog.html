@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SAP CPI Artifact Extractor – Tracking Your Integration Landscape During ECC to S/4HANA Migration</title>
+<style>
+  :root {
+    --sap-blue:       #0070F2;
+    --sap-dark-blue:  #003D7A;
+    --sap-teal:       #0F828F;
+    --sap-bg:         #F5F6F7;
+    --sap-border:     #D9D9D9;
+    --sap-text:       #1D2D3E;
+    --sap-muted:      #556B82;
+    --sap-code-bg:    #F0F4F9;
+    --sap-table-head: #0054A6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 15px;
+    line-height: 1.7;
+    color: var(--sap-text);
+    background: var(--sap-bg);
+  }
+
+  /* Header */
+  .header-banner {
+    background: linear-gradient(135deg, var(--sap-dark-blue) 0%, var(--sap-blue) 70%, var(--sap-teal) 100%);
+    color: #fff;
+    padding: 40px;
+  }
+  .header-banner .category {
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    opacity: 0.75;
+    margin-bottom: 10px;
+  }
+  .header-banner h1 {
+    font-size: 26px;
+    font-weight: 700;
+    line-height: 1.3;
+    max-width: 780px;
+    margin-bottom: 12px;
+  }
+  .header-banner .meta { font-size: 12px; opacity: 0.7; }
+
+  /* Body */
+  .content-wrap {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 36px 24px 72px;
+  }
+
+  /* Typography */
+  h2 {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--sap-dark-blue);
+    margin: 44px 0 14px;
+    padding-bottom: 6px;
+    border-bottom: 3px solid var(--sap-blue);
+  }
+  h3 {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--sap-teal);
+    margin: 28px 0 10px;
+  }
+  p { margin-bottom: 14px; }
+
+  /* Intro block */
+  .intro-block {
+    background: #E8F1FB;
+    border-left: 5px solid var(--sap-blue);
+    padding: 16px 20px;
+    margin: 24px 0 28px;
+    border-radius: 0 4px 4px 0;
+  }
+  .intro-block p { margin-bottom: 8px; }
+  .intro-block p:last-child { margin-bottom: 0; }
+
+  /* GitHub link box */
+  .github-box {
+    background: var(--sap-dark-blue);
+    color: #fff;
+    padding: 12px 18px;
+    border-radius: 4px;
+    margin: 20px 0 28px;
+    font-size: 14px;
+  }
+  .github-box a { color: #7EC8F5; }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0 28px;
+    font-size: 13.5px;
+  }
+  thead tr { background: var(--sap-table-head); color: #fff; }
+  thead th { padding: 10px 14px; text-align: left; font-weight: 600; }
+  tbody tr:nth-child(even) { background: #EAF1FB; }
+  tbody tr:nth-child(odd)  { background: #fff; }
+  tbody td { padding: 9px 14px; border-bottom: 1px solid var(--sap-border); }
+
+  /* Code */
+  pre {
+    background: var(--sap-code-bg);
+    border: 1px solid var(--sap-border);
+    border-left: 4px solid var(--sap-teal);
+    border-radius: 3px;
+    padding: 16px 20px;
+    overflow-x: auto;
+    font-family: "Courier New", Courier, monospace;
+    font-size: 13px;
+    line-height: 1.55;
+    margin: 12px 0 24px;
+  }
+  code {
+    font-family: "Courier New", Courier, monospace;
+    font-size: 13px;
+    background: var(--sap-code-bg);
+    padding: 1px 5px;
+    border-radius: 2px;
+    border: 1px solid var(--sap-border);
+  }
+
+  /* Bullet lists */
+  ul { padding-left: 22px; margin-bottom: 16px; }
+  ul li { margin-bottom: 7px; }
+
+  /* Numbered steps */
+  ol.steps { list-style: none; padding: 0; counter-reset: s; margin: 14px 0 20px; }
+  ol.steps li {
+    counter-increment: s;
+    display: flex;
+    gap: 12px;
+    align-items: baseline;
+    margin-bottom: 8px;
+    font-size: 14px;
+  }
+  ol.steps li::before {
+    content: counter(s) ".";
+    font-weight: 700;
+    color: var(--sap-blue);
+    min-width: 18px;
+    flex-shrink: 0;
+  }
+
+  /* Section note */
+  .note {
+    background: #FFF8E1;
+    border-left: 4px solid #E07B00;
+    padding: 12px 16px;
+    border-radius: 0 4px 4px 0;
+    margin: 16px 0 24px;
+    font-size: 14px;
+  }
+
+  hr { border: none; border-top: 1px solid var(--sap-border); margin: 36px 0; }
+
+  /* Screenshots */
+  figure {
+    margin: 24px 0 28px;
+    text-align: center;
+  }
+  figure img {
+    max-width: 100%;
+    border: 1px solid var(--sap-border);
+    border-radius: 4px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.10);
+  }
+  figcaption {
+    font-size: 12px;
+    color: var(--sap-muted);
+    margin-top: 8px;
+    font-style: italic;
+  }
+
+  /* Footer */
+  .footer {
+    margin-top: 56px;
+    padding: 24px 40px;
+    background: var(--sap-dark-blue);
+    color: #fff;
+    font-size: 13px;
+  }
+  .footer a { color: #7EC8F5; }
+  .tags { margin-top: 10px; }
+  .tag {
+    display: inline-block;
+    background: rgba(255,255,255,0.15);
+    padding: 2px 9px;
+    border-radius: 10px;
+    font-size: 11px;
+    margin: 2px 2px 0 0;
+  }
+</style>
+</head>
+<body>
+
+<div class="header-banner">
+  <div class="category">SAP Community &bull; Integration &bull; Cloud Platform Integration</div>
+  <h1>SAP CPI Artifact Extractor – Tracking Your Integration Landscape During ECC&nbsp;to&nbsp;S/4HANA Migration</h1>
+  <div class="meta">February 2026 &bull; Open Source Tool &bull; GitHub: github.com/viksingh/extract-cpi-ui</div>
+</div>
+
+<div class="content-wrap">
+
+  <div class="intro-block">
+    <p>I am currently working on an ECC to S/4HANA migration. We have a number of migration cycles and retrofit activities ahead of us, and one of the first things I needed was visibility into what was deployed on the CPI tenant and how it was changing over time. SAP does not provide a built-in way to extract this information in bulk. Let me walk you through a tool I built to support these cycles and retrofit activities.</p>
+  </div>
+
+  <div class="github-box">
+    The tool is open source: <a href="https://github.com/viksingh/extract-cpi-ui">https://github.com/viksingh/extract-cpi-ui</a>
+  </div>
+
+  <!-- ─── 1. BACKGROUND ─── -->
+  <h2>Background – Tools Are Not Optional at Scale</h2>
+
+  <p>This is not the first time I have needed to build tooling to support a migration.</p>
+
+  <p>I have been working on SAP integration projects for a number of years. In previous projects on PI/PO, when you have tens of thousands of interfaces, manual processes simply do not scale. I built a number of tools back then to support migrations:</p>
+
+  <ul>
+    <li><strong>Communication channel extraction</strong> – bulk export of all sender and receiver channels so the migration team could understand what existed without logging into each channel one at a time</li>
+    <li><strong>Module parameter updates</strong> – programmatic bulk changes to adapter module configurations across hundreds of channels at once</li>
+    <li><strong>SLD object creation and updates</strong> – automated management of System Landscape Directory entries for technical and business systems as new systems were introduced during each cutover wave</li>
+    <li><strong>Mapping information extraction</strong> – export of all mapping objects with their associated interfaces so we knew what needed to be rebuilt</li>
+  </ul>
+
+  <div class="note">
+    The teams that had tooling finished cutover verification in hours. The teams that did not were still working through screens at 3am on go-live night.
+  </div>
+
+  <p>Now I am on a CPI migration and facing the same problem. The platform has changed – it is OData and OAuth2 rather than XI protocol and basic auth – but the need is the same. With multiple cycles and retrofit activities planned, I need to know what is deployed, track how it changes between waves, and verify the state at each cutover.</p>
+
+  <!-- ─── 2. THE PROBLEM ─── -->
+  <h2>The Problem</h2>
+
+  <p>SAP CPI's Design Time lets you browse packages and iFlows one at a time. There is no native way to export a full inventory of all artifacts – packages, flows, value mappings, configurations, runtime status – into something you can actually analyse.</p>
+
+  <p>For a large tenant with hundreds of iFlows across dozens of packages, this becomes a real problem when you need to:</p>
+  <ul>
+    <li>Take a baseline snapshot before migration starts</li>
+    <li>See what has changed between migration waves</li>
+    <li>Verify at cutover that the right flows are deployed and running</li>
+    <li>Hand something to a functional team who does not have CPI access</li>
+  </ul>
+
+  <!-- ─── 3. THE TOOL ─── -->
+  <h2>The Tool – extract-cpi-ui</h2>
+
+  <p><code>extract-cpi-ui</code> is a JavaFX desktop application that connects to your CPI tenant via the OData v1 API and extracts a complete inventory in one operation. It runs on Java 17+. No SAP GUI. No additional BTP subscription beyond the CPI credentials you already have.</p>
+
+  <figure>
+    <img src="images/01_initial_launch.png" alt="SAP CPI Artifact Extractor on first launch">
+    <figcaption>Figure 1: The application on first launch – connection settings, extraction options, and export format all visible in one window.</figcaption>
+  </figure>
+
+  <h3>What It Extracts</h3>
+
+  <table>
+    <thead>
+      <tr><th>Artifact Type</th><th>Fields</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Integration Packages</strong></td><td>ID, Name, Version, Vendor, Mode, Created By, Creation Date, Modified By, Modified Date</td></tr>
+      <tr><td><strong>Integration Flows</strong></td><td>ID, Name, Package, Version, Sender, Receiver, Created By, Created At, Modified By, Modified At, Runtime Status, Deployed Version</td></tr>
+      <tr><td><strong>Value Mappings</strong></td><td>ID, Name, Package, Version, Created By, Created At, Modified By, Modified At, Runtime Status</td></tr>
+      <tr><td><strong>Configurations</strong></td><td>Artifact ID, Parameter Key, Parameter Value, Data Type</td></tr>
+      <tr><td><strong>Runtime Artifacts</strong></td><td>Artifact ID, Name, Type, Status (STARTED/ERROR/UNDEPLOYED), Deployed By, Deployed On</td></tr>
+    </tbody>
+  </table>
+
+  <p>Authentication supports OAuth2 client credentials (recommended for CF) and Basic Auth for Neo or service users. All dates are displayed as <code>yyyy-MM-dd HH:mm:ss</code> rather than the raw SAP epoch format (<code>/Date(1234567890000)/</code>) that comes back from the API.</p>
+
+  <figure>
+    <img src="images/05_packages_tab.png" alt="Packages tab showing integration packages">
+    <figcaption>Figure 2: Packages tab – all integration packages extracted from the tenant with version, vendor, and date information.</figcaption>
+  </figure>
+
+  <figure>
+    <img src="images/06_flows_tab.png" alt="Flows tab showing integration flows">
+    <figcaption>Figure 3: Flows tab – integration flows with package grouping, version, and runtime status visible at a glance.</figcaption>
+  </figure>
+
+  <figure>
+    <img src="images/08_runtime_tab.png" alt="Runtime tab showing deployed artifact status">
+    <figcaption>Figure 4: Runtime tab – deployed artifacts with STARTED / ERROR / UNDEPLOYED status, deployed-by, and deployed-on columns for cutover verification.</figcaption>
+  </figure>
+
+  <!-- ─── 4. DATE FILTER ─── -->
+  <h2>Date Filter</h2>
+
+  <p>One thing I needed specifically for the migration was the ability to filter by date. If I extract the full tenant today and again in two months, I want to see what changed in that period rather than looking at 550 iFlows again from scratch.</p>
+
+  <p>The date filter lets you narrow the results to artifacts created or modified on or after a date you choose. There are three modes:</p>
+
+  <table>
+    <thead>
+      <tr><th>Mode</th><th>What It Keeps</th><th>Best For</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Modified since</strong></td><td>Artifacts touched on or after the chosen date</td><td>Tracking change between migration waves</td></tr>
+      <tr><td><strong>Created since</strong></td><td>Net-new artifacts created on or after the date</td><td>Confirming what was built during a wave</td></tr>
+      <tr><td><strong>Created or modified since</strong></td><td>Either created or modified on or after the date</td><td>Broadest view of all activity</td></tr>
+    </tbody>
+  </table>
+
+  <figure>
+    <img src="images/10_date_filter_enabled.png" alt="Date filter enabled in the extraction options panel">
+    <figcaption>Figure 5: Date filter enabled – choose a mode and a date to narrow results to what changed during a specific migration wave.</figcaption>
+  </figure>
+
+  <p>The filter applies to packages, iFlows, and value mappings. A package is kept if it passes the filter itself or if any of its child artifacts pass – so you do not lose child artifacts because the parent package metadata was not updated.</p>
+
+  <p>The filter works on both live extractions and previously saved JSON snapshots. You can take a snapshot today, save it to disk, and reload it months later with a different date filter without touching the API again. This was important to me because production API access is sometimes restricted outside of maintenance windows.</p>
+
+  <!-- ─── 5. EXPORT FORMATS ─── -->
+  <h2>Export Formats</h2>
+
+  <p>The tool exports to three formats. I added all three because they each serve a different purpose.</p>
+
+  <h3>Excel</h3>
+  <p>A multi-sheet workbook with one sheet per artifact type. This is what I use to share with functional consultants and project managers who need to understand the integration landscape but have no CPI access. It is pivot-table-ready and you can filter and sort it without any technical knowledge.</p>
+
+  <h3>CSV</h3>
+  <p>One file per artifact type. The reason I included CSV alongside Excel is that CPI artifact names and descriptions sometimes contain special characters – em dashes, Unicode in description fields, vendor-provided text in non-ASCII encodings. These can silently corrupt an Excel cell. CSV with proper quoting handles this safely and you can import it into any tool or process it on the command line.</p>
+
+  <h3>JSON</h3>
+  <p>A single file containing the complete extraction result. Every field the API returned is preserved. This is the format I care most about for the migration. The JSON file is a point-in-time snapshot of the tenant. I can reload it in the tool at any time and apply any date filter to the historical data.</p>
+
+  <p>One thing I have learned on migration projects is that the integration landscape is dynamic. Flows do not stay still while you migrate. Developers keep changing things, fixing bugs, adjusting configurations. Something you retrofitted in Wave 1 may have been modified again by Wave 3. Without snapshots you have no way to know what changed after you last looked at it, and retrofits done without this visibility tend to be incomplete or based on stale information.</p>
+
+  <p>By taking snapshots regularly throughout the migration, you have a record of the landscape at each point in time. When a retrofit task comes up you can compare the current state against the snapshot from when the retrofit was originally planned and see if anything has changed since. This makes the retrofit work more reliable and reduces the risk of missing changes that happened in the background.</p>
+
+  <p>More importantly, I have plans to build a diff tool that takes two JSON snapshots and identifies:</p>
+  <ul>
+    <li>Flows that exist in the newer snapshot but not the older one – net-new, need to be built or verified on the target</li>
+    <li>Flows in both but with different <code>ModifiedAt</code> dates – changed, configurations may need retrofitting</li>
+    <li>Flows in the older snapshot but not the newer – removed, confirm this was intentional</li>
+  </ul>
+  <p>By keeping a library of JSON snapshots taken at each migration wave, the diff tool will have everything it needs to generate a change log automatically.</p>
+
+  <!-- ─── 6. MIGRATION WORKFLOW ─── -->
+  <h2>Migration Workflow</h2>
+
+  <p>The way I use this in the current project:</p>
+
+  <h3>Before migration starts</h3>
+  <p>Extract the full tenant. Save the JSON. Export to Excel and share with the workstream leads so everyone knows what exists. This is the baseline.</p>
+
+  <h3>After each migration wave</h3>
+  <p>Extract with "Modified since" set to the wave start date. This shows only what was touched during that wave. Export to Excel for review. Save the JSON for the diff tool.</p>
+
+  <h3>Pre go-live</h3>
+  <p>Extract the full tenant again with no date filter. Check the runtime status sheet – everything that should be running should show as STARTED with no ERROR status. This is the cutover verification step that would otherwise require someone clicking through each iFlow manually.</p>
+
+  <h3>Post go-live</h3>
+  <p>Save the go-live JSON snapshot. When the diff tool is ready, this becomes the baseline for tracking any hypercare changes.</p>
+
+  <!-- ─── 7. GETTING STARTED ─── -->
+  <h2>Getting Started</h2>
+
+  <p>You need Java 17 or later and OAuth2 credentials or a Basic Auth service user for your CPI tenant.</p>
+
+  <p>Download the JAR from the <a href="https://github.com/viksingh/extract-cpi-ui/releases" style="color:var(--sap-blue);">releases page</a> and run it:</p>
+
+  <pre>java -jar cpi-artifact-extractor-ui-1.0.0.jar</pre>
+
+  <p>No installation. The UI opens as a desktop window.</p>
+
+  <ol class="steps">
+    <li>Enter your tenant URL</li>
+    <li>Select OAuth2 and enter your token URL, client ID, and client secret</li>
+    <li>Choose an export format – Excel for a first run</li>
+    <li>Set an output directory</li>
+    <li>Optionally enable the date filter and choose a date</li>
+    <li>Click <strong>Extract &amp; Export</strong></li>
+  </ol>
+
+  <figure>
+    <img src="images/02_config_loaded.png" alt="Connection settings filled in via Load Config File">
+    <figcaption>Figure 6: Credentials loaded via <em>Load Config File</em> – tenant URL, token URL, client ID, and client secret populated in one click.</figcaption>
+  </figure>
+
+  <figure>
+    <img src="images/03_extracting.png" alt="Extraction in progress">
+    <figcaption>Figure 7: Extraction running – OAuth2 token obtained, packages and flows being fetched from the OData API.</figcaption>
+  </figure>
+
+  <figure>
+    <img src="images/04_extraction_complete.png" alt="Extraction complete showing Summary tab">
+    <figcaption>Figure 8: Extraction complete – Summary tab with artifact counts, export path, and confirmation of the Excel workbook written to disk.</figcaption>
+  </figure>
+
+  <p>Use <strong>Save Config</strong> to write your settings to a properties file. <strong>Load Config File</strong> restores everything in one click including the date filter settings. To reload a saved snapshot: click <strong>Load Snapshot...</strong>, pick the JSON file. If you have the date filter enabled it applies automatically without hitting the API.</p>
+
+  <!-- ─── 8. WHAT IS NEXT ─── -->
+  <h2>What Is Next</h2>
+
+  <p>This is the first tool in a broader CPI toolset I am building to support the current ECC to S/4HANA migration. With multiple cycles still ahead and retrofit activities running in parallel, the tooling needs to keep pace with the project. The immediate next step is the snapshot diff tool mentioned above -- a direct requirement for comparing the landscape state between cycles. After that I have plans for cutover verification reports and a few other things driven by what each upcoming cycle surfaces.</p>
+
+  <div class="github-box">
+    Code is on GitHub: <a href="https://github.com/viksingh/extract-cpi-ui">https://github.com/viksingh/extract-cpi-ui</a>
+  </div>
+
+  <hr>
+
+  <p><em>If you have faced similar challenges managing a CPI tenant during a migration, or if you have built tools of your own for this, I would be interested to hear about it in the comments.</em></p>
+
+</div>
+
+<div class="footer">
+  <div style="max-width:820px; margin:0 auto;">
+    <strong>GitHub:</strong> <a href="https://github.com/viksingh/extract-cpi-ui">https://github.com/viksingh/extract-cpi-ui</a>
+    <div class="tags" style="margin-top:12px;">
+      <span class="tag">SAP CPI</span>
+      <span class="tag">S/4HANA Migration</span>
+      <span class="tag">ECC Migration</span>
+      <span class="tag">Cloud Platform Integration</span>
+      <span class="tag">Integration Inventory</span>
+      <span class="tag">Open Source</span>
+      <span class="tag">JavaFX</span>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
