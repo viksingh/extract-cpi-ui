@@ -63,6 +63,16 @@ public class ExcelExporter {
                 createRuntimeSheet(workbook, headerStyle, result.getRuntimeArtifacts());
             }
 
+            // Sheet 7-9: iFlow Bundle content (adapters, mappings, scripts) — only when bundles were extracted
+            List<IntegrationFlow> bundledFlows = result.getAllFlows().stream()
+                    .filter(IntegrationFlow::isBundleParsed)
+                    .toList();
+            if (!bundledFlows.isEmpty()) {
+                createAdaptersSheet(workbook, headerStyle, bundledFlows);
+                createMappingsSheet(workbook, headerStyle, bundledFlows);
+                createScriptsSheet(workbook, headerStyle, bundledFlows);
+            }
+
             try (FileOutputStream fos = new FileOutputStream(filePath.toFile())) {
                 workbook.write(fos);
             }
@@ -282,6 +292,126 @@ public class ExcelExporter {
         sheet.setAutoFilter(new CellRangeAddress(0, 0, 0, headers.length - 1));
     }
 
+    // @author Vikas Singh | Created: 2026-02-22
+    private void createAdaptersSheet(Workbook wb, CellStyle headerStyle,
+                                      List<IntegrationFlow> bundledFlows) {
+        Sheet sheet = wb.createSheet("iFlow Adapters");
+        String[] headers = {
+                "Flow ID", "Flow Name", "Adapter ID", "Adapter Name",
+                "Direction", "Adapter Type", "Transport Protocol", "Message Protocol", "Address"
+        };
+        createHeaderRow(sheet, headerStyle, headers);
+
+        int rowNum = 1;
+        for (IntegrationFlow flow : bundledFlows) {
+            IFlowContent content = flow.getIflowContent();
+            if (content == null) continue;
+            for (IFlowAdapter adapter : content.getAdapters()) {
+                Row row = sheet.createRow(rowNum++);
+                int col = 0;
+                row.createCell(col++).setCellValue(nullSafe(flow.getId()));
+                row.createCell(col++).setCellValue(nullSafe(flow.getName()));
+                row.createCell(col++).setCellValue(nullSafe(adapter.getId()));
+                row.createCell(col++).setCellValue(nullSafe(adapter.getName()));
+                row.createCell(col++).setCellValue(nullSafe(adapter.getDirection()));
+                row.createCell(col++).setCellValue(nullSafe(adapter.getAdapterType()));
+                row.createCell(col++).setCellValue(nullSafe(adapter.getTransportProtocol()));
+                row.createCell(col++).setCellValue(nullSafe(adapter.getMessageProtocol()));
+                row.createCell(col++).setCellValue(nullSafe(adapter.getAddress()));
+            }
+        }
+
+        autoSizeColumns(sheet, headers.length);
+        if (rowNum > 1) {
+            sheet.setAutoFilter(new CellRangeAddress(0, 0, 0, headers.length - 1));
+        }
+    }
+
+    // @author Vikas Singh | Created: 2026-02-22
+    private void createMappingsSheet(Workbook wb, CellStyle headerStyle,
+                                      List<IntegrationFlow> bundledFlows) {
+        Sheet sheet = wb.createSheet("iFlow Mappings");
+        String[] headers = {
+                "Flow ID", "Flow Name", "Mapping ID", "Mapping Name", "Mapping Type", "Resource ID"
+        };
+        createHeaderRow(sheet, headerStyle, headers);
+
+        int rowNum = 1;
+        for (IntegrationFlow flow : bundledFlows) {
+            IFlowContent content = flow.getIflowContent();
+            if (content == null) continue;
+            for (IFlowMapping mapping : content.getMappings()) {
+                Row row = sheet.createRow(rowNum++);
+                int col = 0;
+                row.createCell(col++).setCellValue(nullSafe(flow.getId()));
+                row.createCell(col++).setCellValue(nullSafe(flow.getName()));
+                row.createCell(col++).setCellValue(nullSafe(mapping.getId()));
+                row.createCell(col++).setCellValue(nullSafe(mapping.getName()));
+                row.createCell(col++).setCellValue(nullSafe(mapping.getMappingType()));
+                row.createCell(col++).setCellValue(nullSafe(mapping.getResourceId()));
+            }
+            // Also list mapping files (mmap, xsl) from the bundle
+            for (String mfile : content.getMappingFiles()) {
+                Row row = sheet.createRow(rowNum++);
+                int col = 0;
+                row.createCell(col++).setCellValue(nullSafe(flow.getId()));
+                row.createCell(col++).setCellValue(nullSafe(flow.getName()));
+                row.createCell(col++).setCellValue("");
+                row.createCell(col++).setCellValue(nullSafe(mfile));
+                row.createCell(col++).setCellValue("File");
+                row.createCell(col++).setCellValue("");
+            }
+        }
+
+        autoSizeColumns(sheet, headers.length);
+        if (rowNum > 1) {
+            sheet.setAutoFilter(new CellRangeAddress(0, 0, 0, headers.length - 1));
+        }
+    }
+
+    // @author Vikas Singh | Created: 2026-02-22
+    private void createScriptsSheet(Workbook wb, CellStyle headerStyle,
+                                     List<IntegrationFlow> bundledFlows) {
+        Sheet sheet = wb.createSheet("iFlow Scripts");
+        String[] headers = {
+                "Flow ID", "Flow Name", "Script File", "Language", "Script Content (Snippet)"
+        };
+        createHeaderRow(sheet, headerStyle, headers);
+
+        CellStyle wrapStyle = createWrapStyle(wb);
+
+        int rowNum = 1;
+        for (IntegrationFlow flow : bundledFlows) {
+            IFlowContent content = flow.getIflowContent();
+            if (content == null) continue;
+            for (ScriptInfo script : content.getScripts()) {
+                Row row = sheet.createRow(rowNum++);
+                row.setHeightInPoints(60);
+                int col = 0;
+                row.createCell(col++).setCellValue(nullSafe(flow.getId()));
+                row.createCell(col++).setCellValue(nullSafe(flow.getName()));
+                row.createCell(col++).setCellValue(nullSafe(script.getFileName()));
+                row.createCell(col++).setCellValue(nullSafe(script.getLanguage()));
+                Cell snippetCell = row.createCell(col);
+                snippetCell.setCellValue(nullSafe(script.getContentSnippet()));
+                snippetCell.setCellStyle(wrapStyle);
+            }
+        }
+
+        // Fix column widths — snippet column gets a wider fixed width
+        for (int i = 0; i < headers.length - 1; i++) {
+            sheet.autoSizeColumn(i);
+            if (sheet.getColumnWidth(i) > 10000) {
+                sheet.setColumnWidth(i, 10000);
+            }
+        }
+        sheet.setColumnWidth(headers.length - 1, 20000); // snippet column
+
+        if (rowNum > 1) {
+            sheet.setAutoFilter(new CellRangeAddress(0, 0, 0, headers.length - 1));
+        }
+    }
+
     // =========================================================================
     // Helper Methods
     // =========================================================================
@@ -344,15 +474,24 @@ public class ExcelExporter {
     }
 
     /**
-     * Format SAP CPI OData date strings like "/Date(1234567890000)/" to human-readable.
+     * Format SAP CPI OData date strings like "/Date(1234567890000+0530)/" to human-readable.
+     * Correctly strips the optional timezone offset before parsing the epoch ms.
      */
     // @author Vikas Singh | Created: 2025-12-23
     private String formatCpiDate(String cpiDate) {
         if (cpiDate == null || cpiDate.isBlank()) return "";
         try {
             if (cpiDate.contains("/Date(")) {
-                String epochStr = cpiDate.replaceAll("[^\\d-]", "");
-                long epoch = Long.parseLong(epochStr);
+                int start = cpiDate.indexOf('(') + 1;
+                int end = cpiDate.indexOf(')', start);
+                if (end < 0) end = cpiDate.length();
+                String inner = cpiDate.substring(start, end);
+                int tzPlus = inner.indexOf('+');
+                int tzMinus = inner.lastIndexOf('-');
+                if (tzMinus == 0) tzMinus = -1;
+                int tzSep = tzPlus >= 0 ? tzPlus : tzMinus;
+                String epochPart = (tzSep > 0) ? inner.substring(0, tzSep) : inner;
+                long epoch = Long.parseLong(epochPart.trim());
                 java.time.Instant instant = java.time.Instant.ofEpochMilli(epoch);
                 return java.time.LocalDateTime.ofInstant(instant, java.time.ZoneId.systemDefault())
                         .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));

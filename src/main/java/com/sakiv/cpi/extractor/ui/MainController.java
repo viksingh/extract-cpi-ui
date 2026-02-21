@@ -27,13 +27,25 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.function.Function;
 
 public class MainController {
 
     private static final Logger log = LoggerFactory.getLogger(MainController.class);
+
+    // Original unfiltered data — stored after each load/extraction so the filter
+    // can be re-applied live when the user changes filter settings without reloading.
+    private ExtractionResult currentResult;
+    private List<IntegrationPackage> origPackages;
+    private List<IntegrationFlow> origAllFlows;
+    private List<ValueMapping> origAllVMs;
+    private List<RuntimeArtifact> origRuntimeArtifacts;
+    private final Map<String, List<IntegrationFlow>> origPkgFlows = new HashMap<>();
+    private final Map<String, List<ValueMapping>> origPkgVMs = new HashMap<>();
 
     // Connection fields
     @FXML private TextField tenantUrlField;
@@ -55,6 +67,7 @@ public class MainController {
     @FXML private CheckBox extractValueMappingsCb;
     @FXML private CheckBox extractConfigurationsCb;
     @FXML private CheckBox extractRuntimeCb;
+    @FXML private CheckBox extractIflowBundlesCb;
 
     // Date filter
     @FXML private CheckBox dateFilterEnabledCb;
@@ -75,6 +88,7 @@ public class MainController {
     @FXML private TableView<ValueMapping> valueMapsTable;
     @FXML private TableView<ConfigRow> configsTable;
     @FXML private TableView<RuntimeArtifact> runtimeTable;
+    @FXML private TableView<AdapterRow> adaptersTable;
 
     // Log + progress
     @FXML private TextArea logTextArea;
@@ -107,6 +121,12 @@ public class MainController {
         initValueMapsTable();
         initConfigsTable();
         initRuntimeTable();
+        initAdaptersTable();
+
+        // Re-apply filter automatically whenever filter settings change after data is loaded
+        dateFilterEnabledCb.selectedProperty().addListener((obs, old, val) -> reapplyFilter());
+        sinceDatePicker.valueProperty().addListener((obs, old, val) -> reapplyFilter());
+        dateFilterModeCombo.valueProperty().addListener((obs, old, val) -> reapplyFilter());
     }
 
     // =========================================================================
@@ -158,18 +178,77 @@ public class MainController {
      * <p>A package is kept if it passes the filter directly OR if any of its
      * child flows/VMs pass. This avoids losing child artifacts that pre-date
      * the package's own metadata.
+     * <p>Must be called from the JavaFX application thread so UI controls are readable.
      */
     // @author Vikas Singh | Created: 2026-01-20
     private void applyDateFilter(ExtractionResult result) {
-        if (!dateFilterEnabledCb.isSelected()) return;
+        // Read UI controls here — this method must be on the FX thread
+        boolean enabled = dateFilterEnabledCb.isSelected();
         LocalDate sinceDate = sinceDatePicker.getValue();
-        if (sinceDate == null) return;
         DateFilterUtil.FilterMode mode = dateFilterModeCombo.getValue();
+        if (mode == null) mode = DateFilterUtil.FilterMode.MODIFIED_SINCE;
+        applyDateFilter(result, enabled, sinceDate, mode);
+    }
+
+    // @author Vikas Singh | Created: 2026-01-20
+    private void applyDateFilter(ExtractionResult result,
+                                 boolean filterEnabled, LocalDate sinceDate,
+                                 DateFilterUtil.FilterMode mode) {
+        log.info("applyDateFilter called: enabled={}, sinceDate={}, mode={}, runtime={}",
+                filterEnabled, sinceDate, mode, result.getRuntimeArtifacts().size());
+        if (!filterEnabled) { log.info("Filter disabled — skipping"); return; }
+        if (sinceDate == null) { log.info("No sinceDate set — skipping"); return; }
         if (mode == null) mode = DateFilterUtil.FilterMode.MODIFIED_SINCE;
 
         int origPackages = result.getPackages().size();
         int origFlows = result.getAllFlows().size();
         int origVMs = result.getAllValueMappings().size();
+        int origRuntime = result.getRuntimeArtifacts().size();
+
+        // DEPLOYED_SINCE: filter flows by deployedAt and runtime artifacts by deployedOn
+        if (mode == DateFilterUtil.FilterMode.DEPLOYED_SINCE) {
+            // Log first 3 runtime artifact deployedOn values for diagnostics
+            result.getRuntimeArtifacts().stream().limit(3).forEach(rt ->
+                log.info("  Runtime sample: id={}, deployedOn={}, parsed={}",
+                        rt.getId(), rt.getDeployedOn(),
+                        DateFilterUtil.parseCpiDate(rt.getDeployedOn())));
+
+            List<IntegrationPackage> filteredPackages = new ArrayList<>();
+            List<IntegrationFlow> filteredAllFlows = new ArrayList<>();
+
+            for (IntegrationPackage pkg : result.getPackages()) {
+                List<IntegrationFlow> pkgFlows = new ArrayList<>();
+                for (IntegrationFlow flow : pkg.getIntegrationFlows()) {
+                    LocalDate dep = DateFilterUtil.parseCpiDate(flow.getDeployedAt());
+                    if (dep != null && !dep.isBefore(sinceDate)) {
+                        pkgFlows.add(flow);
+                        filteredAllFlows.add(flow);
+                    }
+                }
+                pkg.setIntegrationFlows(pkgFlows);
+                if (!pkgFlows.isEmpty()) {
+                    filteredPackages.add(pkg);
+                }
+            }
+
+            List<RuntimeArtifact> filteredRuntime = new ArrayList<>();
+            for (RuntimeArtifact rt : result.getRuntimeArtifacts()) {
+                LocalDate dep = DateFilterUtil.parseCpiDate(rt.getDeployedOn());
+                if (dep != null && !dep.isBefore(sinceDate)) {
+                    filteredRuntime.add(rt);
+                }
+            }
+
+            result.setPackages(filteredPackages);
+            result.setAllFlows(filteredAllFlows);
+            result.setRuntimeArtifacts(filteredRuntime);
+            log.info("Date filter (DEPLOYED_SINCE {}): packages {} -> {}, flows {} -> {}, runtime {} -> {}",
+                    sinceDate,
+                    origPackages, filteredPackages.size(),
+                    origFlows, filteredAllFlows.size(),
+                    origRuntime, filteredRuntime.size());
+            return;
+        }
 
         List<IntegrationPackage> filteredPackages = new ArrayList<>();
         List<IntegrationFlow> filteredAllFlows = new ArrayList<>();
@@ -204,15 +283,26 @@ public class MainController {
             }
         }
 
+        // Filter runtime artifacts by deployedOn (the only date available on RuntimeArtifact)
+        List<RuntimeArtifact> filteredRuntime = new ArrayList<>();
+        for (RuntimeArtifact rt : result.getRuntimeArtifacts()) {
+            LocalDate dep = DateFilterUtil.parseCpiDate(rt.getDeployedOn());
+            if (dep != null && !dep.isBefore(sinceDate)) {
+                filteredRuntime.add(rt);
+            }
+        }
+
         result.setPackages(filteredPackages);
         result.setAllFlows(filteredAllFlows);
         result.setAllValueMappings(filteredAllVMs);
+        result.setRuntimeArtifacts(filteredRuntime);
 
-        log.info("Date filter ({}, since {}): packages {} -> {}, flows {} -> {}, valueMappings {} -> {}",
+        log.info("Date filter ({}, since {}): packages {} -> {}, flows {} -> {}, valueMappings {} -> {}, runtime {} -> {}",
                 mode, sinceDate,
                 origPackages, filteredPackages.size(),
                 origFlows, filteredAllFlows.size(),
-                origVMs, filteredAllVMs.size());
+                origVMs, filteredAllVMs.size(),
+                origRuntime, filteredRuntime.size());
     }
 
     // @author Vikas Singh | Created: 2026-01-21
@@ -263,6 +353,7 @@ public class MainController {
             extractValueMappingsCb.setSelected(getBool(props, "extract.valuemappings", true));
             extractConfigurationsCb.setSelected(getBool(props, "extract.configurations", true));
             extractRuntimeCb.setSelected(getBool(props, "extract.runtime.status", true));
+            extractIflowBundlesCb.setSelected(getBool(props, "extract.iflow.bundles", false));
 
             // Date filter
             dateFilterEnabledCb.setSelected(getBool(props, "filter.date.enabled", false));
@@ -357,6 +448,7 @@ public class MainController {
                 progressLabel.setText("Snapshot loaded!");
                 extractButton.setDisable(false);
                 loadSnapshotBtn.setDisable(false);
+                saveOriginals(result);
                 applyDateFilter(result);
                 populateResults(result);
                 appendLog("Snapshot loaded from: " + file.getAbsolutePath());
@@ -389,6 +481,11 @@ public class MainController {
             return;
         }
 
+        // Capture form state on the FX thread before the background task starts.
+        // JavaFX UI controls must only be read from the FX application thread.
+        final Properties props = buildPropertiesFromForm();
+        final String exportFormat = getExportFormat();
+
         extractButton.setDisable(true);
         progressBar.setVisible(true);
         progressBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
@@ -398,10 +495,7 @@ public class MainController {
         Task<ExtractionResult> task = new Task<>() {
             @Override
             protected ExtractionResult call() throws Exception {
-                // Build configuration from form
-                Properties props = buildPropertiesFromForm();
-
-                // Write to temp file for CpiConfiguration to load
+                // Write captured props to temp file for CpiConfiguration to load
                 Path tempConfig = Files.createTempFile("cpi-ui-config-", ".properties");
                 try (OutputStream os = new FileOutputStream(tempConfig.toFile())) {
                     props.store(os, null);
@@ -418,29 +512,7 @@ public class MainController {
                     result = apiService.extractAll();
                 }
 
-                applyDateFilter(result);
-
-                // Export
-                String format = getExportFormat();
-                String outputDir = props.getProperty("export.output.dir", "./output");
-                String prefix = props.getProperty("export.filename.prefix", "cpi_artifacts");
-
-                updateMessage("Exporting results...");
-
-                switch (format) {
-                    case "xlsx" -> new ExcelExporter().export(result, outputDir, prefix);
-                    case "csv" -> new CsvExporter().export(result, outputDir, prefix);
-                    case "json" -> new JsonExporter().export(result, outputDir, prefix);
-                    case "all" -> {
-                        new ExcelExporter().export(result, outputDir, prefix);
-                        new CsvExporter().export(result, outputDir, prefix);
-                        new JsonExporter().export(result, outputDir, prefix);
-                    }
-                }
-
-                // Clean up temp file
                 Files.deleteIfExists(tempConfig);
-
                 return result;
             }
         };
@@ -451,11 +523,14 @@ public class MainController {
         task.setOnSucceeded(event -> {
             ExtractionResult result = task.getValue();
             Platform.runLater(() -> {
-                progressBar.setProgress(1.0);
-                progressLabel.setText("Extraction complete!");
-                extractButton.setDisable(false);
+                progressLabel.setText("Applying filter...");
+                // Save originals BEFORE filtering so re-apply works after user changes filter
+                saveOriginals(result);
+                // Apply filter on FX thread — reads current UI control values safely
+                applyDateFilter(result);
                 populateResults(result);
-                appendLog("Extraction and export completed successfully.");
+                // Export filtered data in a separate background task
+                startExport(result, exportFormat, props);
             });
         });
 
@@ -473,6 +548,84 @@ public class MainController {
         Thread thread = new Thread(task, "cpi-extraction-thread");
         thread.setDaemon(true);
         thread.start();
+    }
+
+    // =========================================================================
+    // Filter Originals Storage & Re-apply
+    // =========================================================================
+
+    // @author Vikas Singh | Created: 2026-02-22
+    private void saveOriginals(ExtractionResult result) {
+        currentResult = result;
+        origPackages = new ArrayList<>(result.getPackages());
+        origAllFlows = new ArrayList<>(result.getAllFlows());
+        origAllVMs = new ArrayList<>(result.getAllValueMappings());
+        origRuntimeArtifacts = new ArrayList<>(result.getRuntimeArtifacts());
+        origPkgFlows.clear();
+        origPkgVMs.clear();
+        for (IntegrationPackage pkg : origPackages) {
+            origPkgFlows.put(pkg.getId(), new ArrayList<>(pkg.getIntegrationFlows()));
+            origPkgVMs.put(pkg.getId(), new ArrayList<>(pkg.getValueMappings()));
+        }
+    }
+
+    // @author Vikas Singh | Created: 2026-02-22
+    private void reapplyFilter() {
+        if (currentResult == null) return;
+        // Restore all original unfiltered data into currentResult before re-filtering
+        currentResult.setPackages(new ArrayList<>(origPackages));
+        currentResult.setAllFlows(new ArrayList<>(origAllFlows));
+        currentResult.setAllValueMappings(new ArrayList<>(origAllVMs));
+        currentResult.setRuntimeArtifacts(new ArrayList<>(origRuntimeArtifacts));
+        for (IntegrationPackage pkg : currentResult.getPackages()) {
+            List<IntegrationFlow> flows = origPkgFlows.get(pkg.getId());
+            pkg.setIntegrationFlows(flows != null ? new ArrayList<>(flows) : new ArrayList<>());
+            List<ValueMapping> vms = origPkgVMs.get(pkg.getId());
+            pkg.setValueMappings(vms != null ? new ArrayList<>(vms) : new ArrayList<>());
+        }
+        applyDateFilter(currentResult);
+        populateResults(currentResult);
+    }
+
+    // @author Vikas Singh | Created: 2026-02-22
+    private void startExport(ExtractionResult result, String exportFormat, Properties props) {
+        String outputDir = props.getProperty("export.output.dir", "./output");
+        String prefix = props.getProperty("export.filename.prefix", "cpi_artifacts");
+        Task<Void> exportTask = new Task<>() {
+            @Override
+            protected Void call() throws Exception {
+                switch (exportFormat) {
+                    case "xlsx" -> new ExcelExporter().export(result, outputDir, prefix);
+                    case "csv" -> new CsvExporter().export(result, outputDir, prefix);
+                    case "json" -> new JsonExporter().export(result, outputDir, prefix);
+                    case "all" -> {
+                        new ExcelExporter().export(result, outputDir, prefix);
+                        new CsvExporter().export(result, outputDir, prefix);
+                        new JsonExporter().export(result, outputDir, prefix);
+                    }
+                }
+                return null;
+            }
+        };
+        exportTask.setOnSucceeded(e -> Platform.runLater(() -> {
+            progressBar.setProgress(1.0);
+            progressLabel.setText("Extraction complete!");
+            extractButton.setDisable(false);
+            appendLog("Extraction and export completed successfully.");
+        }));
+        exportTask.setOnFailed(e -> {
+            Throwable ex = exportTask.getException();
+            Platform.runLater(() -> {
+                progressBar.setVisible(false);
+                progressLabel.setText("Export failed.");
+                extractButton.setDisable(false);
+                appendLog("ERROR: " + ex.getMessage());
+                showError("Export Failed", ex.getMessage());
+            });
+        });
+        Thread exportThread = new Thread(exportTask, "cpi-export-thread");
+        exportThread.setDaemon(true);
+        exportThread.start();
     }
 
     // =========================================================================
@@ -511,6 +664,20 @@ public class MainController {
 
         // Runtime tab
         runtimeTable.setItems(FXCollections.observableArrayList(result.getRuntimeArtifacts()));
+
+        // iFlow Adapters tab — flattened from parsed bundles
+        List<AdapterRow> adapterRows = new ArrayList<>();
+        for (IntegrationFlow flow : result.getAllFlows()) {
+            if (flow.isBundleParsed() && flow.getIflowContent() != null) {
+                for (var adapter : flow.getIflowContent().getAdapters()) {
+                    adapterRows.add(new AdapterRow(
+                            flow.getId(), flow.getName(),
+                            adapter.getAdapterType(), adapter.getDirection(),
+                            adapter.getAddress(), adapter.getTransportProtocol()));
+                }
+            }
+        }
+        adaptersTable.setItems(FXCollections.observableArrayList(adapterRows));
 
         // Switch to Summary tab
         resultsTabPane.getSelectionModel().selectFirst();
@@ -602,6 +769,31 @@ public class MainController {
         runtimeTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_SUBSEQUENT_COLUMNS);
     }
 
+    // @author Vikas Singh | Created: 2026-02-22
+    @SuppressWarnings("unchecked")
+    private void initAdaptersTable() {
+        TableColumn<AdapterRow, String> flowIdCol = new TableColumn<>("Flow ID");
+        flowIdCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().flowId()));
+
+        TableColumn<AdapterRow, String> flowNameCol = new TableColumn<>("Flow Name");
+        flowNameCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().flowName()));
+
+        TableColumn<AdapterRow, String> typeCol = new TableColumn<>("Adapter Type");
+        typeCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().adapterType()));
+
+        TableColumn<AdapterRow, String> dirCol = new TableColumn<>("Direction");
+        dirCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().direction()));
+
+        TableColumn<AdapterRow, String> addressCol = new TableColumn<>("Address");
+        addressCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().address()));
+
+        TableColumn<AdapterRow, String> protocolCol = new TableColumn<>("Transport Protocol");
+        protocolCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().transportProtocol()));
+
+        adaptersTable.getColumns().addAll(flowIdCol, flowNameCol, typeCol, dirCol, addressCol, protocolCol);
+        adaptersTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_SUBSEQUENT_COLUMNS);
+    }
+
     // @author Vikas Singh | Created: 2026-01-27
     private <T> void addColumn(TableView<T> table, String title, String property) {
         TableColumn<T, String> col = new TableColumn<>(title);
@@ -649,6 +841,7 @@ public class MainController {
         props.setProperty("extract.valuemappings", String.valueOf(extractValueMappingsCb.isSelected()));
         props.setProperty("extract.configurations", String.valueOf(extractConfigurationsCb.isSelected()));
         props.setProperty("extract.runtime.status", String.valueOf(extractRuntimeCb.isSelected()));
+        props.setProperty("extract.iflow.bundles", String.valueOf(extractIflowBundlesCb.isSelected()));
 
         props.setProperty("filter.date.enabled", String.valueOf(dateFilterEnabledCb.isSelected()));
         LocalDate sinceDate = sinceDatePicker.getValue();
@@ -719,4 +912,8 @@ public class MainController {
 
     public record ConfigRow(String artifactId, String artifactName,
                             String parameterKey, String parameterValue, String dataType) {}
+
+    public record AdapterRow(String flowId, String flowName,
+                             String adapterType, String direction,
+                             String address, String transportProtocol) {}
 }

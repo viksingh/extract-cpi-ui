@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sakiv.cpi.extractor.config.CpiConfiguration;
 import com.sakiv.cpi.extractor.model.*;
+import com.sakiv.cpi.extractor.parser.IFlowBundleParser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,6 +34,7 @@ public class CpiApiService {
 
     private final CpiConfiguration config;
     private final CpiHttpClient httpClient;
+    private final IFlowBundleParser bundleParser = new IFlowBundleParser();
 
     // @author Vikas Singh | Created: 2025-11-15
     public CpiApiService(CpiConfiguration config, CpiHttpClient httpClient) {
@@ -230,8 +232,46 @@ public class CpiApiService {
             }
         }
 
+        // 4. Download and parse iFlow bundles
+        if (config.getBoolean("extract.iflow.bundles", false)) {
+            log.info("Downloading iFlow bundles for {} flows...", result.getAllFlows().size());
+            int parsed = 0, failed = 0;
+            for (IntegrationFlow flow : result.getAllFlows()) {
+                try {
+                    downloadAndParseBundle(flow);
+                    parsed++;
+                } catch (Exception e) {
+                    log.warn("Failed to download/parse bundle for {}: {}", flow.getId(), e.getMessage());
+                    flow.setBundleParseError(e.getMessage());
+                    failed++;
+                }
+            }
+            log.info("iFlow bundles: {} parsed, {} failed", parsed, failed);
+        }
+
         result.computeSummary();
         return result;
+    }
+
+    // =========================================================================
+    // iFlow Bundle Download
+    // =========================================================================
+
+    /**
+     * Download the ZIP bundle for an iFlow and parse its content.
+     * Uses the $value endpoint: IntegrationDesigntimeArtifacts(Id='...', Version='...')/$value
+     */
+    // @author Vikas Singh | Created: 2026-02-22
+    private void downloadAndParseBundle(IntegrationFlow flow) throws IOException {
+        String ver = (flow.getVersion() == null || flow.getVersion().isBlank()) ? "active" : flow.getVersion();
+        String endpoint = String.format(
+                "/api/v1/IntegrationDesigntimeArtifacts(Id='%s',Version='%s')/$value",
+                flow.getId(), ver);
+        log.debug("Downloading bundle: {}", endpoint);
+        byte[] zipBytes = httpClient.getBytes(endpoint);
+        IFlowContent content = bundleParser.parse(zipBytes, flow.getId(), ver);
+        flow.setIflowContent(content);
+        flow.setBundleParsed(true);
     }
 
     // =========================================================================

@@ -170,6 +170,60 @@ public class CpiHttpClient implements Closeable {
     }
 
     /**
+     * Execute GET request and return the raw response body as bytes.
+     * Used for downloading iFlow ZIP bundles via the $value endpoint.
+     *
+     * @param urlOrPath Either a relative API path or a full URL
+     * @return Response body as byte array
+     */
+    // @author Vikas Singh | Created: 2026-02-22
+    public byte[] getBytes(String urlOrPath) throws IOException {
+        String fullUrl;
+        if (urlOrPath.startsWith("http://") || urlOrPath.startsWith("https://")) {
+            fullUrl = urlOrPath;
+        } else {
+            fullUrl = config.getBaseUrl() + urlOrPath;
+        }
+        log.debug("GET (bytes) {}", fullUrl);
+
+        for (int attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                HttpGet request = new HttpGet(fullUrl);
+                request.setHeader(HttpHeaders.ACCEPT, "application/zip, application/octet-stream, */*");
+                request.setHeader(HttpHeaders.AUTHORIZATION, getAuthHeader());
+
+                try (CloseableHttpResponse response = httpClient.execute(request)) {
+                    int statusCode = response.getStatusLine().getStatusCode();
+
+                    if (statusCode == 200) {
+                        return EntityUtils.toByteArray(response.getEntity());
+                    } else if (statusCode == 401 && attempt < maxRetries) {
+                        log.warn("Got 401, refreshing token and retrying (attempt {}/{})", attempt, maxRetries);
+                        invalidateToken();
+                        continue;
+                    } else if (statusCode == 429) {
+                        log.warn("Rate limited (429), waiting before retry (attempt {}/{})", attempt, maxRetries);
+                        Thread.sleep(retryDelayMs * attempt);
+                        continue;
+                    } else if (statusCode >= 500 && attempt < maxRetries) {
+                        log.warn("Server error {}, retrying (attempt {}/{})", statusCode, attempt, maxRetries);
+                        Thread.sleep(retryDelayMs);
+                        continue;
+                    } else {
+                        String body = EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
+                        throw new IOException(String.format(
+                                "HTTP %d from %s: %s", statusCode, urlOrPath, body));
+                    }
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException("Request interrupted", e);
+            }
+        }
+        throw new IOException("Max retries exceeded for: " + urlOrPath);
+    }
+
+    /**
      * Fetch CSRF token for write operations (if needed in future).
      */
     // @author Vikas Singh | Created: 2025-12-02

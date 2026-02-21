@@ -69,6 +69,7 @@
                 <CheckBox fx:id="extractValueMappingsCb" text="Value Mappings" selected="true"/>
                 <CheckBox fx:id="extractConfigurationsCb" text="Configurations" selected="true"/>
                 <CheckBox fx:id="extractRuntimeCb" text="Runtime Status" selected="true"/>
+                <CheckBox fx:id="extractIflowBundlesCb" text="iFlow Bundles (ZIP/XML)" selected="false"/>
                 <Separator/>
                 <CheckBox fx:id="dateFilterEnabledCb" text="Enable Date Filter" onAction="#onDateFilterToggled"/>
                 <HBox fx:id="dateFilterControls" spacing="8" alignment="CENTER_LEFT"
@@ -137,6 +138,9 @@
         </Tab>
         <Tab text="Runtime">
             <TableView fx:id="runtimeTable" styleClass="data-table"/>
+        </Tab>
+        <Tab text="iFlow Adapters">
+            <TableView fx:id="adaptersTable" styleClass="data-table"/>
         </Tab>
     </TabPane>
 

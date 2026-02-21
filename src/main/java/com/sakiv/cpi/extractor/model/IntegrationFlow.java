@@ -58,6 +58,11 @@ public class IntegrationFlow {
     // Configurations (populated separately)
     private List<Configuration> configurations = new ArrayList<>();
 
+    // iFlow bundle content (populated when extract.iflow.bundles=true)
+    private IFlowContent iflowContent;
+    private boolean bundleParsed = false;
+    private String bundleParseError;
+
     // Getters and Setters
 
     public String getId() { return id; }
@@ -113,6 +118,15 @@ public class IntegrationFlow {
 
     public List<Configuration> getConfigurations() { return configurations; }
     public void setConfigurations(List<Configuration> configurations) { this.configurations = configurations; }
+
+    public IFlowContent getIflowContent() { return iflowContent; }
+    public void setIflowContent(IFlowContent iflowContent) { this.iflowContent = iflowContent; }
+
+    public boolean isBundleParsed() { return bundleParsed; }
+    public void setBundleParsed(boolean bundleParsed) { this.bundleParsed = bundleParsed; }
+
+    public String getBundleParseError() { return bundleParseError; }
+    public void setBundleParseError(String bundleParseError) { this.bundleParseError = bundleParseError; }
 
     @Override
     public String toString() {
