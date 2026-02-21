@@ -1,5 +1,7 @@
 package com.sap.cpi.extractor.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -7,10 +9,11 @@ import java.util.List;
 /**
  * Container holding all extracted CPI artifact data.
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class ExtractionResult {
 
-    private final LocalDateTime extractedAt;
-    private final String tenantUrl;
+    private LocalDateTime extractedAt;
+    private String tenantUrl;
 
     private List<IntegrationPackage> packages = new ArrayList<>();
     private List<IntegrationFlow> allFlows = new ArrayList<>();
@@ -22,6 +25,11 @@ public class ExtractionResult {
     private int totalValueMappings;
     private int deployedArtifacts;
     private int errorArtifacts;
+
+    /** No-arg constructor for Jackson deserialization. */
+    public ExtractionResult() {
+        this.extractedAt = LocalDateTime.now();
+    }
 
     public ExtractionResult(String tenantUrl) {
         this.extractedAt = LocalDateTime.now();
@@ -65,7 +73,10 @@ public class ExtractionResult {
     // Getters and Setters
 
     public LocalDateTime getExtractedAt() { return extractedAt; }
+    public void setExtractedAt(LocalDateTime extractedAt) { this.extractedAt = extractedAt; }
+
     public String getTenantUrl() { return tenantUrl; }
+    public void setTenantUrl(String tenantUrl) { this.tenantUrl = tenantUrl; }
 
     public List<IntegrationPackage> getPackages() { return packages; }
     public void setPackages(List<IntegrationPackage> packages) { this.packages = packages; }

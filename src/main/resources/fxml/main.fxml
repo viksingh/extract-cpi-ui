@@ -69,6 +69,14 @@
                 <CheckBox fx:id="extractValueMappingsCb" text="Value Mappings" selected="true"/>
                 <CheckBox fx:id="extractConfigurationsCb" text="Configurations" selected="true"/>
                 <CheckBox fx:id="extractRuntimeCb" text="Runtime Status" selected="true"/>
+                <Separator/>
+                <CheckBox fx:id="dateFilterEnabledCb" text="Enable Date Filter" onAction="#onDateFilterToggled"/>
+                <HBox fx:id="dateFilterControls" spacing="8" alignment="CENTER_LEFT"
+                      visible="false" managed="false">
+                    <padding><Insets left="20"/></padding>
+                    <ComboBox fx:id="dateFilterModeCombo" prefWidth="200"/>
+                    <DatePicker fx:id="sinceDatePicker" promptText="Select date..." prefWidth="150"/>
+                </HBox>
             </VBox>
         </TitledPane>
 
@@ -103,6 +111,7 @@
         <Button text="Load Config File" onAction="#onLoadConfig" styleClass="action-btn"/>
         <Button text="Save Config" onAction="#onSaveConfig" styleClass="action-btn"/>
         <Region HBox.hgrow="ALWAYS"/>
+        <Button fx:id="loadSnapshotBtn" text="Load Snapshot..." onAction="#onLoadSnapshot" styleClass="action-btn"/>
         <Button fx:id="extractButton" text="Extract &amp; Export" onAction="#onExtract"
                 styleClass="primary-btn"/>
     </HBox>

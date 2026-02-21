@@ -7,6 +7,8 @@ import com.sap.cpi.extractor.export.JsonExporter;
 import com.sap.cpi.extractor.model.*;
 import com.sap.cpi.extractor.service.CpiApiService;
 import com.sap.cpi.extractor.service.CpiHttpClient;
+import com.sap.cpi.extractor.service.SnapshotLoader;
+import com.sap.cpi.extractor.util.DateFilterUtil;
 import javafx.application.Platform;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.collections.FXCollections;
@@ -14,6 +16,7 @@ import javafx.concurrent.Task;
 import javafx.fxml.FXML;
 import javafx.scene.control.*;
 import javafx.scene.control.cell.PropertyValueFactory;
+import javafx.scene.layout.HBox;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 import org.slf4j.Logger;
@@ -22,9 +25,11 @@ import org.slf4j.LoggerFactory;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
+import java.util.function.Function;
 
 public class MainController {
 
@@ -51,6 +56,12 @@ public class MainController {
     @FXML private CheckBox extractConfigurationsCb;
     @FXML private CheckBox extractRuntimeCb;
 
+    // Date filter
+    @FXML private CheckBox dateFilterEnabledCb;
+    @FXML private HBox dateFilterControls;
+    @FXML private ComboBox<DateFilterUtil.FilterMode> dateFilterModeCombo;
+    @FXML private DatePicker sinceDatePicker;
+
     // Export settings
     @FXML private ComboBox<String> exportFormatCombo;
     @FXML private TextField outputDirField;
@@ -70,6 +81,7 @@ public class MainController {
     @FXML private ProgressBar progressBar;
     @FXML private Label progressLabel;
     @FXML private Button extractButton;
+    @FXML private Button loadSnapshotBtn;
 
     @FXML
     public void initialize() {
@@ -80,6 +92,10 @@ public class MainController {
         // Export format combo
         exportFormatCombo.setItems(FXCollections.observableArrayList("Excel (.xlsx)", "CSV", "JSON", "All Formats"));
         exportFormatCombo.setValue("Excel (.xlsx)");
+
+        // Date filter combo
+        dateFilterModeCombo.setItems(FXCollections.observableArrayList(DateFilterUtil.FilterMode.values()));
+        dateFilterModeCombo.setValue(DateFilterUtil.FilterMode.MODIFIED_SINCE);
 
         // Wire up log appender
         TextAreaLogAppender.setTextArea(logTextArea);
@@ -121,6 +137,78 @@ public class MainController {
         basicPasswordLabel.setManaged(!isOAuth);
         basicPasswordField.setVisible(!isOAuth);
         basicPasswordField.setManaged(!isOAuth);
+    }
+
+    @FXML
+    private void onDateFilterToggled() {
+        boolean enabled = dateFilterEnabledCb.isSelected();
+        dateFilterControls.setVisible(enabled);
+        dateFilterControls.setManaged(enabled);
+        if (!enabled) {
+            sinceDatePicker.setValue(null);
+        }
+    }
+
+    /**
+     * Applies the date filter to packages, flows, and value mappings in-place.
+     * No-op when the filter is disabled or no date is selected.
+     * <p>A package is kept if it passes the filter directly OR if any of its
+     * child flows/VMs pass. This avoids losing child artifacts that pre-date
+     * the package's own metadata.
+     */
+    private void applyDateFilter(ExtractionResult result) {
+        if (!dateFilterEnabledCb.isSelected()) return;
+        LocalDate sinceDate = sinceDatePicker.getValue();
+        if (sinceDate == null) return;
+        DateFilterUtil.FilterMode mode = dateFilterModeCombo.getValue();
+        if (mode == null) mode = DateFilterUtil.FilterMode.MODIFIED_SINCE;
+
+        int origPackages = result.getPackages().size();
+        int origFlows = result.getAllFlows().size();
+        int origVMs = result.getAllValueMappings().size();
+
+        List<IntegrationPackage> filteredPackages = new ArrayList<>();
+        List<IntegrationFlow> filteredAllFlows = new ArrayList<>();
+        List<ValueMapping> filteredAllVMs = new ArrayList<>();
+
+        for (IntegrationPackage pkg : result.getPackages()) {
+            // Filter flows within this package
+            List<IntegrationFlow> pkgFlows = new ArrayList<>();
+            for (IntegrationFlow flow : pkg.getIntegrationFlows()) {
+                if (DateFilterUtil.passesFilter(flow.getCreatedAt(), flow.getModifiedAt(), sinceDate, mode)) {
+                    pkgFlows.add(flow);
+                    filteredAllFlows.add(flow);
+                }
+            }
+            pkg.setIntegrationFlows(pkgFlows);
+
+            // Filter value mappings within this package
+            List<ValueMapping> pkgVMs = new ArrayList<>();
+            for (ValueMapping vm : pkg.getValueMappings()) {
+                if (DateFilterUtil.passesFilter(vm.getCreatedAt(), vm.getModifiedAt(), sinceDate, mode)) {
+                    pkgVMs.add(vm);
+                    filteredAllVMs.add(vm);
+                }
+            }
+            pkg.setValueMappings(pkgVMs);
+
+            // Keep package if it passes OR it still has child flows/VMs
+            boolean pkgPasses = DateFilterUtil.passesFilter(
+                    pkg.getCreationDate(), pkg.getModifiedDate(), sinceDate, mode);
+            if (pkgPasses || !pkgFlows.isEmpty() || !pkgVMs.isEmpty()) {
+                filteredPackages.add(pkg);
+            }
+        }
+
+        result.setPackages(filteredPackages);
+        result.setAllFlows(filteredAllFlows);
+        result.setAllValueMappings(filteredAllVMs);
+
+        log.info("Date filter ({}, since {}): packages {} -> {}, flows {} -> {}, valueMappings {} -> {}",
+                mode, sinceDate,
+                origPackages, filteredPackages.size(),
+                origFlows, filteredAllFlows.size(),
+                origVMs, filteredAllVMs.size());
     }
 
     @FXML
@@ -171,6 +259,18 @@ public class MainController {
             extractConfigurationsCb.setSelected(getBool(props, "extract.configurations", true));
             extractRuntimeCb.setSelected(getBool(props, "extract.runtime.status", true));
 
+            // Date filter
+            dateFilterEnabledCb.setSelected(getBool(props, "filter.date.enabled", false));
+            String sinceStr = props.getProperty("filter.date.since", "");
+            if (!sinceStr.isBlank()) {
+                try { sinceDatePicker.setValue(LocalDate.parse(sinceStr)); } catch (Exception ignored) {}
+            }
+            String modeStr = props.getProperty("filter.date.mode", "");
+            if (!modeStr.isBlank()) {
+                try { dateFilterModeCombo.setValue(DateFilterUtil.FilterMode.valueOf(modeStr)); } catch (Exception ignored) {}
+            }
+            onDateFilterToggled();
+
             appendLog("Configuration loaded from: " + file.getAbsolutePath());
         } catch (IOException e) {
             showError("Failed to load config", e.getMessage());
@@ -217,6 +317,62 @@ public class MainController {
     }
 
     @FXML
+    private void onLoadSnapshot() {
+        FileChooser fileChooser = new FileChooser();
+        fileChooser.setTitle("Load CPI Snapshot File");
+        fileChooser.getExtensionFilters().add(
+                new FileChooser.ExtensionFilter("JSON Snapshot Files", "*.json"));
+        fileChooser.setInitialDirectory(new File("."));
+
+        File file = fileChooser.showOpenDialog(tenantUrlField.getScene().getWindow());
+        if (file == null) return;
+
+        extractButton.setDisable(true);
+        loadSnapshotBtn.setDisable(true);
+        progressBar.setVisible(true);
+        progressBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
+        progressLabel.setText("Loading snapshot...");
+        logTextArea.clear();
+
+        Task<ExtractionResult> task = new Task<>() {
+            @Override
+            protected ExtractionResult call() throws Exception {
+                SnapshotLoader loader = new SnapshotLoader();
+                return loader.load(file);
+            }
+        };
+
+        task.setOnSucceeded(event -> {
+            ExtractionResult result = task.getValue();
+            Platform.runLater(() -> {
+                progressBar.setProgress(1.0);
+                progressLabel.setText("Snapshot loaded!");
+                extractButton.setDisable(false);
+                loadSnapshotBtn.setDisable(false);
+                applyDateFilter(result);
+                populateResults(result);
+                appendLog("Snapshot loaded from: " + file.getAbsolutePath());
+            });
+        });
+
+        task.setOnFailed(event -> {
+            Throwable ex = task.getException();
+            Platform.runLater(() -> {
+                progressBar.setVisible(false);
+                progressLabel.setText("Snapshot load failed.");
+                extractButton.setDisable(false);
+                loadSnapshotBtn.setDisable(false);
+                appendLog("ERROR: " + ex.getMessage());
+                showError("Snapshot Load Failed", ex.getMessage());
+            });
+        });
+
+        Thread thread = new Thread(task, "snapshot-load-thread");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    @FXML
     private void onExtract() {
         // Validate required fields
         if (tenantUrlField.getText().isBlank()) {
@@ -252,6 +408,8 @@ public class MainController {
                     CpiApiService apiService = new CpiApiService(config, httpClient);
                     result = apiService.extractAll();
                 }
+
+                applyDateFilter(result);
 
                 // Export
                 String format = getExportFormat();
@@ -314,7 +472,13 @@ public class MainController {
 
     private void populateResults(ExtractionResult result) {
         // Summary tab
-        summaryTextArea.setText(result.getSummary());
+        String summary = result.getSummary();
+        if (dateFilterEnabledCb.isSelected() && sinceDatePicker.getValue() != null) {
+            summary += String.format(
+                    "Date Filter Active%n  Mode:  %s%n  Since: %s%n================================================%n",
+                    dateFilterModeCombo.getValue(), sinceDatePicker.getValue());
+        }
+        summaryTextArea.setText(summary);
 
         // Packages tab
         packagesTable.setItems(FXCollections.observableArrayList(result.getPackages()));
@@ -354,9 +518,9 @@ public class MainController {
         addColumn(packagesTable, "Vendor", "vendor");
         addColumn(packagesTable, "Mode", "mode");
         addColumn(packagesTable, "Created By", "createdBy");
-        addColumn(packagesTable, "Creation Date", "creationDate");
+        addFormattedDateColumn(packagesTable, "Creation Date", IntegrationPackage::getCreationDate);
         addColumn(packagesTable, "Modified By", "modifiedBy");
-        addColumn(packagesTable, "Modified Date", "modifiedDate");
+        addFormattedDateColumn(packagesTable, "Modified Date", IntegrationPackage::getModifiedDate);
         packagesTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_SUBSEQUENT_COLUMNS);
     }
 
@@ -370,7 +534,9 @@ public class MainController {
         addColumn(flowsTable, "Runtime Status", "runtimeStatus");
         addColumn(flowsTable, "Deployed Version", "deployedVersion");
         addColumn(flowsTable, "Created By", "createdBy");
+        addFormattedDateColumn(flowsTable, "Created At", IntegrationFlow::getCreatedAt);
         addColumn(flowsTable, "Modified By", "modifiedBy");
+        addFormattedDateColumn(flowsTable, "Modified At", IntegrationFlow::getModifiedAt);
         flowsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_SUBSEQUENT_COLUMNS);
     }
 
@@ -381,7 +547,9 @@ public class MainController {
         addColumn(valueMapsTable, "Package ID", "packageId");
         addColumn(valueMapsTable, "Version", "version");
         addColumn(valueMapsTable, "Created By", "createdBy");
+        addFormattedDateColumn(valueMapsTable, "Created At", ValueMapping::getCreatedAt);
         addColumn(valueMapsTable, "Modified By", "modifiedBy");
+        addFormattedDateColumn(valueMapsTable, "Modified At", ValueMapping::getModifiedAt);
         addColumn(valueMapsTable, "Runtime Status", "runtimeStatus");
         valueMapsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_SUBSEQUENT_COLUMNS);
     }
@@ -414,7 +582,7 @@ public class MainController {
         addColumn(runtimeTable, "Version", "version");
         addColumn(runtimeTable, "Status", "status");
         addColumn(runtimeTable, "Deployed By", "deployedBy");
-        addColumn(runtimeTable, "Deployed On", "deployedOn");
+        addFormattedDateColumn(runtimeTable, "Deployed On", RuntimeArtifact::getDeployedOn);
         addColumn(runtimeTable, "Error Info", "errorInformation");
         runtimeTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_SUBSEQUENT_COLUMNS);
     }
@@ -422,6 +590,14 @@ public class MainController {
     private <T> void addColumn(TableView<T> table, String title, String property) {
         TableColumn<T, String> col = new TableColumn<>(title);
         col.setCellValueFactory(new PropertyValueFactory<>(property));
+        table.getColumns().add(col);
+    }
+
+    private <T> void addFormattedDateColumn(TableView<T> table, String title,
+                                             Function<T, String> dateGetter) {
+        TableColumn<T, String> col = new TableColumn<>(title);
+        col.setCellValueFactory(cellData ->
+                new SimpleStringProperty(DateFilterUtil.formatCpiDate(dateGetter.apply(cellData.getValue()))));
         table.getColumns().add(col);
     }
 
@@ -455,6 +631,13 @@ public class MainController {
         props.setProperty("extract.valuemappings", String.valueOf(extractValueMappingsCb.isSelected()));
         props.setProperty("extract.configurations", String.valueOf(extractConfigurationsCb.isSelected()));
         props.setProperty("extract.runtime.status", String.valueOf(extractRuntimeCb.isSelected()));
+
+        props.setProperty("filter.date.enabled", String.valueOf(dateFilterEnabledCb.isSelected()));
+        LocalDate sinceDate = sinceDatePicker.getValue();
+        props.setProperty("filter.date.since", sinceDate != null ? sinceDate.toString() : "");
+        DateFilterUtil.FilterMode filterMode = dateFilterModeCombo.getValue();
+        props.setProperty("filter.date.mode",
+                filterMode != null ? filterMode.name() : DateFilterUtil.FilterMode.MODIFIED_SINCE.name());
 
         return props;
     }
