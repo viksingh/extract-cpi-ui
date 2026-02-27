@@ -30,7 +30,7 @@ public class CpiConfiguration {
     private final Properties properties;
     private String configSource = "defaults only";
 
-    // @author Vikas Singh | Created: 2025-10-30
+    // @author Vikas Singh | Created: 2025-11-01
     public CpiConfiguration() {
         this.properties = new Properties();
         loadDefaults();
@@ -38,7 +38,7 @@ public class CpiConfiguration {
         overrideFromEnvironment();
     }
 
-    // @author Vikas Singh | Created: 2025-10-30
+    // @author Vikas Singh | Created: 2025-11-01
     public CpiConfiguration(String configFilePath) {
         this.properties = new Properties();
         loadDefaults();
@@ -48,7 +48,7 @@ public class CpiConfiguration {
         overrideFromEnvironment();
     }
 
-    // @author Vikas Singh | Created: 2025-10-31
+    // @author Vikas Singh | Created: 2025-11-01
     private void loadDefaults() {
         properties.setProperty("http.connect.timeout.ms", "30000");
         properties.setProperty("http.read.timeout.ms", "60000");
@@ -116,17 +116,17 @@ public class CpiConfiguration {
 
     // --- Getters ---
 
-    // @author Vikas Singh | Created: 2025-11-03
+    // @author Vikas Singh | Created: 2025-11-02
     public String get(String key) {
         return properties.getProperty(key);
     }
 
-    // @author Vikas Singh | Created: 2025-11-03
+    // @author Vikas Singh | Created: 2025-11-02
     public String get(String key, String defaultValue) {
         return properties.getProperty(key, defaultValue);
     }
 
-    // @author Vikas Singh | Created: 2025-11-03
+    // @author Vikas Singh | Created: 2025-11-02
     public int getInt(String key, int defaultValue) {
         try {
             return Integer.parseInt(properties.getProperty(key, String.valueOf(defaultValue)));
@@ -135,7 +135,7 @@ public class CpiConfiguration {
         }
     }
 
-    // @author Vikas Singh | Created: 2025-11-04
+    // @author Vikas Singh | Created: 2025-11-02
     public boolean getBoolean(String key, boolean defaultValue) {
         String val = properties.getProperty(key);
         return val != null ? Boolean.parseBoolean(val) : defaultValue;
@@ -143,62 +143,62 @@ public class CpiConfiguration {
 
     // --- Convenience Accessors ---
 
-    // @author Vikas Singh | Created: 2025-11-04
+    // @author Vikas Singh | Created: 2025-11-02
     public String getBaseUrl() {
         return get("cpi.base.url");
     }
 
-    // @author Vikas Singh | Created: 2025-11-04
+    // @author Vikas Singh | Created: 2025-11-02
     public String getAuthType() {
         return get("cpi.auth.type", "oauth2");
     }
 
-    // @author Vikas Singh | Created: 2025-11-04
+    // @author Vikas Singh | Created: 2025-11-02
     public String getOAuthTokenUrl() {
         return get("cpi.oauth.token.url");
     }
 
-    // @author Vikas Singh | Created: 2025-11-05
+    // @author Vikas Singh | Created: 2025-11-02
     public String getOAuthClientId() {
         return get("cpi.oauth.client.id");
     }
 
-    // @author Vikas Singh | Created: 2025-11-05
+    // @author Vikas Singh | Created: 2025-11-02
     public String getOAuthClientSecret() {
         return get("cpi.oauth.client.secret");
     }
 
-    // @author Vikas Singh | Created: 2025-11-05
+    // @author Vikas Singh | Created: 2025-11-02
     public String getBasicUsername() {
         return get("cpi.basic.username");
     }
 
-    // @author Vikas Singh | Created: 2025-11-05
+    // @author Vikas Singh | Created: 2025-11-02
     public String getBasicPassword() {
         return get("cpi.basic.password");
     }
 
-    // @author Vikas Singh | Created: 2025-11-05
+    // @author Vikas Singh | Created: 2025-11-02
     public String getExportFormat() {
         return get("export.format", "xlsx");
     }
 
-    // @author Vikas Singh | Created: 2025-11-05
+    // @author Vikas Singh | Created: 2025-11-02
     public String getOutputDir() {
         return get("export.output.dir", "./output");
     }
 
-    // @author Vikas Singh | Created: 2025-11-05
+    // @author Vikas Singh | Created: 2025-11-02
     public String getFilenamePrefix() {
         return get("export.filename.prefix", "cpi_artifacts");
     }
 
-    // @author Vikas Singh | Created: 2025-11-05
+    // @author Vikas Singh | Created: 2025-11-02
     public String getConfigSource() {
         return configSource;
     }
 
-    // @author Vikas Singh | Created: 2025-11-05
+    // @author Vikas Singh | Created: 2025-11-02
     public void validate() {
         String hint = " — provide it in an external config file or via environment variables."
                 + " See config.properties.template for reference.";
@@ -216,7 +216,7 @@ public class CpiConfiguration {
         }
     }
 
-    // @author Vikas Singh | Created: 2025-11-05
+    // @author Vikas Singh | Created: 2025-11-02
     private void requireNonBlank(String key, String label, String hint) {
         if (get(key) == null || get(key).isBlank()) {
             throw new IllegalStateException(label + " (" + key + ") must be configured" + hint);

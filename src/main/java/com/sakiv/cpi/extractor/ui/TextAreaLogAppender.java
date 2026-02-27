@@ -16,22 +16,22 @@ public class TextAreaLogAppender extends AppenderBase<ILoggingEvent> {
     private static TextArea textArea;
     private Encoder<ILoggingEvent> encoder;
 
-    // @author Vikas Singh | Created: 2026-01-14
+    // @author Vikas Singh | Created: 2026-02-01
     public static void setTextArea(TextArea ta) {
         textArea = ta;
     }
 
-    // @author Vikas Singh | Created: 2026-01-15
+    // @author Vikas Singh | Created: 2026-02-01
     public void setEncoder(Encoder<ILoggingEvent> encoder) {
         this.encoder = encoder;
     }
 
-    // @author Vikas Singh | Created: 2026-01-15
+    // @author Vikas Singh | Created: 2026-02-01
     public Encoder<ILoggingEvent> getEncoder() {
         return encoder;
     }
 
-    // @author Vikas Singh | Created: 2026-01-16
+    // @author Vikas Singh | Created: 2026-02-01
     @Override
     public void start() {
         if (encoder != null) {
@@ -40,7 +40,7 @@ public class TextAreaLogAppender extends AppenderBase<ILoggingEvent> {
         super.start();
     }
 
-    // @author Vikas Singh | Created: 2026-01-17
+    // @author Vikas Singh | Created: 2026-02-01
     @Override
     protected void append(ILoggingEvent event) {
         if (textArea == null) {

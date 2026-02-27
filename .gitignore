@@ -22,3 +22,9 @@ output/
 
 # Config with credentials
 config.properties
+
+# Blog PDF (generated)
+blog/*.pdf
+
+# Claude
+.claude/

@@ -8,7 +8,7 @@ import javafx.stage.Stage;
 
 public class CpiExtractorFxApp extends Application {
 
-    // @author Vikas Singh | Created: 2026-01-10
+    // @author Vikas Singh | Created: 2026-02-01
     @Override
     public void start(Stage primaryStage) throws Exception {
         FXMLLoader loader = new FXMLLoader(getClass().getResource("/fxml/main.fxml"));
@@ -26,7 +26,7 @@ public class CpiExtractorFxApp extends Application {
         primaryStage.show();
     }
 
-    // @author Vikas Singh | Created: 2026-01-11
+    // @author Vikas Singh | Created: 2026-02-01
     public static void main(String[] args) {
         launch(args);
     }

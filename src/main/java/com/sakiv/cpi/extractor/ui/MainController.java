@@ -97,7 +97,7 @@ public class MainController {
     @FXML private Button extractButton;
     @FXML private Button loadSnapshotBtn;
 
-    // @author Vikas Singh | Created: 2026-01-19
+    // @author Vikas Singh | Created: 2026-02-07
     @FXML
     public void initialize() {
         // Auth type combo
@@ -133,7 +133,7 @@ public class MainController {
     // Action Handlers
     // =========================================================================
 
-    // @author Vikas Singh | Created: 2026-01-19
+    // @author Vikas Singh | Created: 2026-02-07
     @FXML
     private void onAuthTypeChanged() {
         boolean isOAuth = "OAuth2".equals(authTypeCombo.getValue());
@@ -161,7 +161,7 @@ public class MainController {
         basicPasswordField.setManaged(!isOAuth);
     }
 
-    // @author Vikas Singh | Created: 2026-01-20
+    // @author Vikas Singh | Created: 2026-02-07
     @FXML
     private void onDateFilterToggled() {
         boolean enabled = dateFilterEnabledCb.isSelected();
@@ -180,7 +180,7 @@ public class MainController {
      * the package's own metadata.
      * <p>Must be called from the JavaFX application thread so UI controls are readable.
      */
-    // @author Vikas Singh | Created: 2026-01-20
+    // @author Vikas Singh | Created: 2026-02-07
     private void applyDateFilter(ExtractionResult result) {
         // Read UI controls here — this method must be on the FX thread
         boolean enabled = dateFilterEnabledCb.isSelected();
@@ -190,7 +190,7 @@ public class MainController {
         applyDateFilter(result, enabled, sinceDate, mode);
     }
 
-    // @author Vikas Singh | Created: 2026-01-20
+    // @author Vikas Singh | Created: 2026-02-07
     private void applyDateFilter(ExtractionResult result,
                                  boolean filterEnabled, LocalDate sinceDate,
                                  DateFilterUtil.FilterMode mode) {
@@ -305,7 +305,7 @@ public class MainController {
                 origRuntime, filteredRuntime.size());
     }
 
-    // @author Vikas Singh | Created: 2026-01-21
+    // @author Vikas Singh | Created: 2026-02-07
     @FXML
     private void onLoadConfig() {
         FileChooser fileChooser = new FileChooser();
@@ -373,7 +373,7 @@ public class MainController {
         }
     }
 
-    // @author Vikas Singh | Created: 2026-01-21
+    // @author Vikas Singh | Created: 2026-02-07
     @FXML
     private void onSaveConfig() {
         FileChooser fileChooser = new FileChooser();
@@ -396,7 +396,7 @@ public class MainController {
         }
     }
 
-    // @author Vikas Singh | Created: 2026-01-22
+    // @author Vikas Singh | Created: 2026-02-07
     @FXML
     private void onBrowseOutputDir() {
         DirectoryChooser chooser = new DirectoryChooser();
@@ -414,7 +414,7 @@ public class MainController {
         }
     }
 
-    // @author Vikas Singh | Created: 2026-01-22
+    // @author Vikas Singh | Created: 2026-02-07
     @FXML
     private void onLoadSnapshot() {
         FileChooser fileChooser = new FileChooser();
@@ -472,7 +472,7 @@ public class MainController {
         thread.start();
     }
 
-    // @author Vikas Singh | Created: 2026-01-23
+    // @author Vikas Singh | Created: 2026-02-07
     @FXML
     private void onExtract() {
         // Validate required fields
@@ -632,7 +632,7 @@ public class MainController {
     // Results Population
     // =========================================================================
 
-    // @author Vikas Singh | Created: 2026-01-24
+    // @author Vikas Singh | Created: 2026-02-07
     private void populateResults(ExtractionResult result) {
         // Summary tab
         String summary = result.getSummary();
@@ -687,7 +687,7 @@ public class MainController {
     // Table Initialization
     // =========================================================================
 
-    // @author Vikas Singh | Created: 2026-01-25
+    // @author Vikas Singh | Created: 2026-02-07
     private void initPackagesTable() {
         addColumn(packagesTable, "Package ID", "id");
         addColumn(packagesTable, "Name", "name");
@@ -702,7 +702,7 @@ public class MainController {
         packagesTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_SUBSEQUENT_COLUMNS);
     }
 
-    // @author Vikas Singh | Created: 2026-01-25
+    // @author Vikas Singh | Created: 2026-02-07
     private void initFlowsTable() {
         addColumn(flowsTable, "Flow ID", "id");
         addColumn(flowsTable, "Name", "name");
@@ -719,7 +719,7 @@ public class MainController {
         flowsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_SUBSEQUENT_COLUMNS);
     }
 
-    // @author Vikas Singh | Created: 2026-01-26
+    // @author Vikas Singh | Created: 2026-02-08
     private void initValueMapsTable() {
         addColumn(valueMapsTable, "ID", "id");
         addColumn(valueMapsTable, "Name", "name");
@@ -734,7 +734,7 @@ public class MainController {
         valueMapsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_SUBSEQUENT_COLUMNS);
     }
 
-    // @author Vikas Singh | Created: 2026-01-26
+    // @author Vikas Singh | Created: 2026-02-08
     @SuppressWarnings("unchecked")
     private void initConfigsTable() {
         TableColumn<ConfigRow, String> artifactIdCol = new TableColumn<>("Artifact ID");
@@ -756,7 +756,7 @@ public class MainController {
         configsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_SUBSEQUENT_COLUMNS);
     }
 
-    // @author Vikas Singh | Created: 2026-01-27
+    // @author Vikas Singh | Created: 2026-02-08
     private void initRuntimeTable() {
         addColumn(runtimeTable, "Artifact ID", "id");
         addColumn(runtimeTable, "Name", "name");
@@ -794,14 +794,14 @@ public class MainController {
         adaptersTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_SUBSEQUENT_COLUMNS);
     }
 
-    // @author Vikas Singh | Created: 2026-01-27
+    // @author Vikas Singh | Created: 2026-02-08
     private <T> void addColumn(TableView<T> table, String title, String property) {
         TableColumn<T, String> col = new TableColumn<>(title);
         col.setCellValueFactory(new PropertyValueFactory<>(property));
         table.getColumns().add(col);
     }
 
-    // @author Vikas Singh | Created: 2026-01-27
+    // @author Vikas Singh | Created: 2026-02-08
     private <T> void addFormattedDateColumn(TableView<T> table, String title,
                                              Function<T, String> dateGetter) {
         TableColumn<T, String> col = new TableColumn<>(title);
@@ -814,7 +814,7 @@ public class MainController {
     // Helper Methods
     // =========================================================================
 
-    // @author Vikas Singh | Created: 2026-01-28
+    // @author Vikas Singh | Created: 2026-02-08
     private Properties buildPropertiesFromForm() {
         Properties props = new Properties();
 
@@ -853,7 +853,7 @@ public class MainController {
         return props;
     }
 
-    // @author Vikas Singh | Created: 2026-01-28
+    // @author Vikas Singh | Created: 2026-02-08
     private String getExportFormat() {
         String selected = exportFormatCombo.getValue();
         if (selected == null) return "xlsx";
@@ -865,7 +865,7 @@ public class MainController {
         };
     }
 
-    // @author Vikas Singh | Created: 2026-01-29
+    // @author Vikas Singh | Created: 2026-02-08
     private void setFieldIfPresent(Properties props, String key, TextField field) {
         String val = props.getProperty(key);
         if (val != null && !val.isBlank()) {
@@ -873,7 +873,7 @@ public class MainController {
         }
     }
 
-    // @author Vikas Singh | Created: 2026-01-29
+    // @author Vikas Singh | Created: 2026-02-08
     private void setPasswordIfPresent(Properties props, String key, PasswordField field) {
         String val = props.getProperty(key);
         if (val != null && !val.isBlank()) {
@@ -881,13 +881,13 @@ public class MainController {
         }
     }
 
-    // @author Vikas Singh | Created: 2026-01-30
+    // @author Vikas Singh | Created: 2026-02-08
     private boolean getBool(Properties props, String key, boolean defaultVal) {
         String val = props.getProperty(key);
         return val != null ? Boolean.parseBoolean(val) : defaultVal;
     }
 
-    // @author Vikas Singh | Created: 2026-01-30
+    // @author Vikas Singh | Created: 2026-02-08
     private void appendLog(String message) {
         Platform.runLater(() -> {
             logTextArea.appendText(message + "\n");
@@ -895,7 +895,7 @@ public class MainController {
         });
     }
 
-    // @author Vikas Singh | Created: 2026-01-31
+    // @author Vikas Singh | Created: 2026-02-08
     private void showError(String title, String message) {
         Platform.runLater(() -> {
             Alert alert = new Alert(Alert.AlertType.ERROR);

@@ -84,7 +84,7 @@ public class CpiApiService {
     /**
      * Fetch all Integration Design-time Artifacts (iFlows).
      */
-    // @author Vikas Singh | Created: 2025-11-17
+    // @author Vikas Singh | Created: 2025-11-16
     public List<IntegrationFlow> getAllIntegrationFlows() throws IOException {
         log.info("Fetching all Integration Design-time Artifacts...");
         String endpoint = config.get("cpi.api.flows", "/api/v1/IntegrationDesigntimeArtifacts");
@@ -96,7 +96,7 @@ public class CpiApiService {
     /**
      * Fetch all Value Mapping Design-time Artifacts.
      */
-    // @author Vikas Singh | Created: 2025-11-17
+    // @author Vikas Singh | Created: 2025-11-16
     public List<ValueMapping> getAllValueMappings() throws IOException {
         log.info("Fetching all Value Mapping Artifacts...");
         String endpoint = config.get("cpi.api.valuemappings",
@@ -113,7 +113,7 @@ public class CpiApiService {
     /**
      * Fetch externalized configurations for a specific iFlow.
      */
-    // @author Vikas Singh | Created: 2025-11-18
+    // @author Vikas Singh | Created: 2025-11-16
     public List<Configuration> getConfigurations(String artifactId, String version) throws IOException {
         log.debug("Fetching configurations for artifact: {} (version: {})", artifactId, version);
         String ver = (version == null || version.isBlank()) ? "active" : version;
@@ -137,7 +137,7 @@ public class CpiApiService {
     /**
      * Fetch all deployed runtime artifacts with their status.
      */
-    // @author Vikas Singh | Created: 2025-11-19
+    // @author Vikas Singh | Created: 2025-11-16
     public List<RuntimeArtifact> getRuntimeArtifacts() throws IOException {
         log.info("Fetching Runtime Artifacts (deployed status)...");
         String endpoint = config.get("cpi.api.runtime", "/api/v1/IntegrationRuntimeArtifacts");
@@ -149,7 +149,7 @@ public class CpiApiService {
     /**
      * Build a lookup map: artifact ID -> RuntimeArtifact for quick status resolution.
      */
-    // @author Vikas Singh | Created: 2025-11-19
+    // @author Vikas Singh | Created: 2025-11-16
     public Map<String, RuntimeArtifact> getRuntimeStatusMap() throws IOException {
         return getRuntimeArtifacts().stream()
                 .collect(Collectors.toMap(
@@ -166,7 +166,7 @@ public class CpiApiService {
     /**
      * Perform a full extraction of all CPI artifacts based on configuration.
      */
-    // @author Vikas Singh | Created: 2025-11-20
+    // @author Vikas Singh | Created: 2025-11-16
     public ExtractionResult extractAll() throws IOException {
         ExtractionResult result = new ExtractionResult(config.getBaseUrl());
 
@@ -425,7 +425,7 @@ public class CpiApiService {
     /**
      * Search for the next-page URL in all possible locations within the response.
      */
-    // @author Vikas Singh | Created: 2025-11-24
+    // @author Vikas Singh | Created: 2025-11-23
     private String findNextPageUrl(JsonNode root) {
         String nextUrl = null;
 
@@ -470,7 +470,7 @@ public class CpiApiService {
      *
      * These cause Jackson to fail because they don't map to our model fields.
      */
-    // @author Vikas Singh | Created: 2025-11-25
+    // @author Vikas Singh | Created: 2025-11-23
     private JsonNode stripODataMetadata(JsonNode node) {
         if (!node.isObject()) {
             return node;

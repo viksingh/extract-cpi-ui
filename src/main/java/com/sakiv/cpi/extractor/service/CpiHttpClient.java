@@ -40,7 +40,7 @@ public class CpiHttpClient implements Closeable {
     private String accessToken;
     private Instant tokenExpiry;
 
-    // @author Vikas Singh | Created: 2025-11-28
+    // @author Vikas Singh | Created: 2025-11-29
     public CpiHttpClient(CpiConfiguration config) {
         this.config = config;
         this.maxRetries = config.getInt("http.max.retries", 3);
@@ -126,7 +126,7 @@ public class CpiHttpClient implements Closeable {
     /**
      * Obtain or reuse an OAuth2 access token via Client Credentials grant.
      */
-    // @author Vikas Singh | Created: 2025-12-01
+    // @author Vikas Singh | Created: 2025-11-30
     private synchronized String getOAuth2Token() throws IOException {
         if (accessToken != null && tokenExpiry != null && Instant.now().isBefore(tokenExpiry)) {
             return accessToken;
@@ -163,7 +163,7 @@ public class CpiHttpClient implements Closeable {
         }
     }
 
-    // @author Vikas Singh | Created: 2025-12-02
+    // @author Vikas Singh | Created: 2025-11-30
     private void invalidateToken() {
         accessToken = null;
         tokenExpiry = null;
@@ -226,7 +226,7 @@ public class CpiHttpClient implements Closeable {
     /**
      * Fetch CSRF token for write operations (if needed in future).
      */
-    // @author Vikas Singh | Created: 2025-12-02
+    // @author Vikas Singh | Created: 2025-11-30
     public String fetchCsrfToken() throws IOException {
         HttpGet request = new HttpGet(config.getBaseUrl() + "/api/v1/");
         request.setHeader(HttpHeaders.AUTHORIZATION, getAuthHeader());
@@ -239,7 +239,7 @@ public class CpiHttpClient implements Closeable {
         }
     }
 
-    // @author Vikas Singh | Created: 2025-12-03
+    // @author Vikas Singh | Created: 2025-11-30
     @Override
     public void close() throws IOException {
         httpClient.close();

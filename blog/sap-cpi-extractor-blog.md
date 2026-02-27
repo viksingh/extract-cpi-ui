@@ -46,6 +46,8 @@ For a large tenant with hundreds of iFlows across dozens of packages, this becom
 
 It runs on Java 17+. No SAP GUI. No additional BTP subscription beyond the CPI credentials you already have.
 
+The tool was built over four months of weekend development from November 2025 through February 2026. All API interactions are read-only HTTP GET requests against the OData v1 endpoints. The only exception is a single POST request used to obtain an OAuth2 access token via the client credentials grant — the tool never writes to or modifies your CPI tenant.
+
 ![SAP CPI Artifact Extractor – initial launch](images/01_initial_launch.png)
 *Figure 1: The application on first launch – connection settings, extraction options, and export format all visible in one window.*
 

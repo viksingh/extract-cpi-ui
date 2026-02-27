@@ -25,7 +25,7 @@ public class ExcelExporter {
     private static final Logger log = LoggerFactory.getLogger(ExcelExporter.class);
     private static final int MAX_CELL_LENGTH = 32767;
 
-    // @author Vikas Singh | Created: 2025-12-15
+    // @author Vikas Singh | Created: 2025-12-13
     public String export(ExtractionResult result, String outputDir, String filenamePrefix)
             throws IOException {
 
@@ -86,7 +86,7 @@ public class ExcelExporter {
     // Sheet Creators
     // =========================================================================
 
-    // @author Vikas Singh | Created: 2025-12-16
+    // @author Vikas Singh | Created: 2025-12-13
     private void createSummarySheet(Workbook wb, CellStyle headerStyle, ExtractionResult result) {
         Sheet sheet = wb.createSheet("Summary");
         int rowNum = 0;
@@ -114,7 +114,7 @@ public class ExcelExporter {
         sheet.setColumnWidth(1, 15000);
     }
 
-    // @author Vikas Singh | Created: 2025-12-17
+    // @author Vikas Singh | Created: 2025-12-13
     private void createPackagesSheet(Workbook wb, CellStyle headerStyle,
                                       List<IntegrationPackage> packages) {
         Sheet sheet = wb.createSheet("Packages");
@@ -149,7 +149,7 @@ public class ExcelExporter {
         sheet.setAutoFilter(new CellRangeAddress(0, 0, 0, headers.length - 1));
     }
 
-    // @author Vikas Singh | Created: 2025-12-17
+    // @author Vikas Singh | Created: 2025-12-13
     private void createFlowsSheet(Workbook wb, CellStyle headerStyle,
                                     List<IntegrationFlow> flows) {
         Sheet sheet = wb.createSheet("Integration Flows");
@@ -187,7 +187,7 @@ public class ExcelExporter {
         sheet.setAutoFilter(new CellRangeAddress(0, 0, 0, headers.length - 1));
     }
 
-    // @author Vikas Singh | Created: 2025-12-18
+    // @author Vikas Singh | Created: 2025-12-14
     private void createValueMappingsSheet(Workbook wb, CellStyle headerStyle,
                                            List<ValueMapping> mappings) {
         Sheet sheet = wb.createSheet("Value Mappings");
@@ -217,7 +217,7 @@ public class ExcelExporter {
         sheet.setAutoFilter(new CellRangeAddress(0, 0, 0, headers.length - 1));
     }
 
-    // @author Vikas Singh | Created: 2025-12-18
+    // @author Vikas Singh | Created: 2025-12-14
     private void createConfigurationsSheet(Workbook wb, CellStyle headerStyle,
                                             List<IntegrationFlow> flows) {
         Sheet sheet = wb.createSheet("Configurations");
@@ -243,7 +243,7 @@ public class ExcelExporter {
         }
     }
 
-    // @author Vikas Singh | Created: 2025-12-19
+    // @author Vikas Singh | Created: 2025-12-14
     private void createRuntimeSheet(Workbook wb, CellStyle headerStyle,
                                      List<RuntimeArtifact> artifacts) {
         Sheet sheet = wb.createSheet("Runtime Status");
@@ -416,7 +416,7 @@ public class ExcelExporter {
     // Helper Methods
     // =========================================================================
 
-    // @author Vikas Singh | Created: 2025-12-20
+    // @author Vikas Singh | Created: 2025-12-14
     private CellStyle createHeaderStyle(Workbook wb) {
         CellStyle style = wb.createCellStyle();
         Font font = wb.createFont();
@@ -429,14 +429,14 @@ public class ExcelExporter {
         return style;
     }
 
-    // @author Vikas Singh | Created: 2025-12-20
+    // @author Vikas Singh | Created: 2025-12-14
     private CellStyle createWrapStyle(Workbook wb) {
         CellStyle style = wb.createCellStyle();
         style.setWrapText(true);
         return style;
     }
 
-    // @author Vikas Singh | Created: 2025-12-21
+    // @author Vikas Singh | Created: 2025-12-14
     private void createHeaderRow(Sheet sheet, CellStyle style, String[] headers) {
         Row row = sheet.createRow(0);
         for (int i = 0; i < headers.length; i++) {
@@ -447,7 +447,7 @@ public class ExcelExporter {
         sheet.createFreezePane(0, 1);
     }
 
-    // @author Vikas Singh | Created: 2025-12-21
+    // @author Vikas Singh | Created: 2025-12-14
     private void createTitleRow(Sheet sheet, CellStyle style, int rowNum, String title) {
         Row row = sheet.createRow(rowNum);
         Cell cell = row.createCell(0);
@@ -455,14 +455,14 @@ public class ExcelExporter {
         cell.setCellStyle(style);
     }
 
-    // @author Vikas Singh | Created: 2025-12-22
+    // @author Vikas Singh | Created: 2025-12-14
     private void addSummaryRow(Sheet sheet, int rowNum, String label, String value) {
         Row row = sheet.createRow(rowNum);
         row.createCell(0).setCellValue(label);
         row.createCell(1).setCellValue(value);
     }
 
-    // @author Vikas Singh | Created: 2025-12-22
+    // @author Vikas Singh | Created: 2025-12-14
     private void autoSizeColumns(Sheet sheet, int numColumns) {
         for (int i = 0; i < numColumns; i++) {
             sheet.autoSizeColumn(i);
@@ -477,7 +477,7 @@ public class ExcelExporter {
      * Format SAP CPI OData date strings like "/Date(1234567890000+0530)/" to human-readable.
      * Correctly strips the optional timezone offset before parsing the epoch ms.
      */
-    // @author Vikas Singh | Created: 2025-12-23
+    // @author Vikas Singh | Created: 2025-12-14
     private String formatCpiDate(String cpiDate) {
         if (cpiDate == null || cpiDate.isBlank()) return "";
         try {
@@ -502,7 +502,7 @@ public class ExcelExporter {
         }
     }
 
-    // @author Vikas Singh | Created: 2025-12-23
+    // @author Vikas Singh | Created: 2025-12-14
     private String nullSafe(String value) {
         if (value == null) return "";
         if (value.length() > MAX_CELL_LENGTH) {

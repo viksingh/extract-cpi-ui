@@ -18,7 +18,7 @@ public class SnapshotLoader {
             .registerModule(new JavaTimeModule())
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
-    // @author Vikas Singh | Created: 2025-12-05
+    // @author Vikas Singh | Created: 2025-12-06
     public ExtractionResult load(File jsonFile) throws IOException {
         log.info("Loading snapshot from: {}", jsonFile.getAbsolutePath());
         ExtractionResult result = mapper.readValue(jsonFile, ExtractionResult.class);

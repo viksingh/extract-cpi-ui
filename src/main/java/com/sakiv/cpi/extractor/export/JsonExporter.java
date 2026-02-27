@@ -19,7 +19,7 @@ public class JsonExporter {
 
     private static final Logger log = LoggerFactory.getLogger(JsonExporter.class);
 
-    // @author Vikas Singh | Created: 2025-12-25
+    // @author Vikas Singh | Created: 2025-12-07
     public String export(ExtractionResult result, String outputDir, String filenamePrefix)
             throws IOException {
 

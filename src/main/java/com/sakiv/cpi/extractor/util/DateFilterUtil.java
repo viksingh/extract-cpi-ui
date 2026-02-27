@@ -19,10 +19,10 @@ public class DateFilterUtil {
 
         private final String label;
 
-        // @author Vikas Singh | Created: 2025-12-28
+        // @author Vikas Singh | Created: 2026-02-01
         FilterMode(String label) { this.label = label; }
 
-        // @author Vikas Singh | Created: 2025-12-29
+        // @author Vikas Singh | Created: 2026-02-01
         @Override
         public String toString() { return label; }
     }
@@ -41,7 +41,7 @@ public class DateFilterUtil {
      * @param cpiDate the raw date string from the API
      * @return parsed {@link LocalDate}, or {@code null} if unparseable
      */
-    // @author Vikas Singh | Created: 2025-12-30
+    // @author Vikas Singh | Created: 2026-02-01
     public static LocalDate parseCpiDate(String cpiDate) {
         if (cpiDate == null || cpiDate.isBlank()) return null;
         try {
@@ -68,7 +68,7 @@ public class DateFilterUtil {
      * @param cpiDate the raw date string from the API (e.g. {@code /Date(1234567890000+0530)/})
      * @return formatted date string, or empty string if input is null/blank
      */
-    // @author Vikas Singh | Created: 2026-01-02
+    // @author Vikas Singh | Created: 2026-02-01
     public static String formatCpiDate(String cpiDate) {
         if (cpiDate == null || cpiDate.isBlank()) return "";
         try {
@@ -103,7 +103,7 @@ public class DateFilterUtil {
      *   <li>{@code /Date(-62135596800000)/}      → -62135596800000 (negative epoch)</li>
      * </ul>
      */
-    // @author Vikas Singh | Created: 2026-01-03
+    // @author Vikas Singh | Created: 2026-02-01
     private static long extractEpochMs(String cpiDate) {
         int start = cpiDate.indexOf('(') + 1;
         int end = cpiDate.indexOf(')', start);
@@ -133,7 +133,7 @@ public class DateFilterUtil {
      * @param mode         which date field(s) to evaluate
      * @return {@code true} if the artifact should be kept
      */
-    // @author Vikas Singh | Created: 2026-01-03
+    // @author Vikas Singh | Created: 2026-02-01
     public static boolean passesFilter(String createdDate, String modifiedDate,
                                        LocalDate sinceDate, FilterMode mode) {
         if (sinceDate == null) return true;
