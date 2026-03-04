@@ -20,7 +20,10 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * HTTP client for SAP CPI OData API calls.
@@ -39,6 +42,11 @@ public class CpiHttpClient implements Closeable {
     // OAuth2 token cache
     private String accessToken;
     private Instant tokenExpiry;
+
+    // API call log
+    private final List<ApiCallRecord> apiCallLog = new ArrayList<>();
+
+    public record ApiCallRecord(String method, String path, int statusCode, long durationMs) {}
 
     // @author Vikas Singh | Created: 2025-11-29
     public CpiHttpClient(CpiConfiguration config) {
@@ -73,6 +81,7 @@ public class CpiHttpClient implements Closeable {
         log.debug("GET {}", fullUrl);
 
         for (int attempt = 1; attempt <= maxRetries; attempt++) {
+            long startTime = System.currentTimeMillis();
             try {
                 HttpGet request = new HttpGet(fullUrl);
                 request.setHeader(HttpHeaders.ACCEPT, "application/json");
@@ -80,7 +89,10 @@ public class CpiHttpClient implements Closeable {
 
                 try (CloseableHttpResponse response = httpClient.execute(request)) {
                     int statusCode = response.getStatusLine().getStatusCode();
+                    long durationMs = System.currentTimeMillis() - startTime;
                     String body = EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
+
+                    apiCallLog.add(new ApiCallRecord("GET", urlOrPath, statusCode, durationMs));
 
                     if (statusCode == 200) {
                         return body;
@@ -187,6 +199,7 @@ public class CpiHttpClient implements Closeable {
         log.debug("GET (bytes) {}", fullUrl);
 
         for (int attempt = 1; attempt <= maxRetries; attempt++) {
+            long startTime = System.currentTimeMillis();
             try {
                 HttpGet request = new HttpGet(fullUrl);
                 request.setHeader(HttpHeaders.ACCEPT, "application/zip, application/octet-stream, */*");
@@ -194,6 +207,9 @@ public class CpiHttpClient implements Closeable {
 
                 try (CloseableHttpResponse response = httpClient.execute(request)) {
                     int statusCode = response.getStatusLine().getStatusCode();
+                    long durationMs = System.currentTimeMillis() - startTime;
+
+                    apiCallLog.add(new ApiCallRecord("GET", urlOrPath, statusCode, durationMs));
 
                     if (statusCode == 200) {
                         return EntityUtils.toByteArray(response.getEntity());
@@ -237,6 +253,10 @@ public class CpiHttpClient implements Closeable {
                     ? response.getFirstHeader("X-CSRF-Token").getValue()
                     : null;
         }
+    }
+
+    public List<ApiCallRecord> getApiCallLog() {
+        return Collections.unmodifiableList(apiCallLog);
     }
 
     // @author Vikas Singh | Created: 2025-11-30

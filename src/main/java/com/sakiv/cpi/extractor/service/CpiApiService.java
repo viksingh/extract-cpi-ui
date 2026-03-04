@@ -12,11 +12,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -160,6 +164,54 @@ public class CpiApiService {
     }
 
     // =========================================================================
+    // Message Processing Logs
+    // =========================================================================
+
+    public List<MessageProcessingLog> getMessageProcessingLogs() throws IOException {
+        log.info("Fetching Message Processing Logs...");
+        String endpoint = config.get("cpi.api.messageProcessingLogs", "/api/v1/MessageProcessingLogs");
+        List<MessageProcessingLog> logs = fetchAll(endpoint, MessageProcessingLog.class);
+        log.info("Found {} Message Processing Log entries", logs.size());
+        return logs;
+    }
+
+    /**
+     * Fetch Message Processing Logs filtered by specific iFlow names.
+     * Batches the $filter query to avoid URL length limits (~10 flows per batch).
+     */
+    public List<MessageProcessingLog> getMessageProcessingLogsForFlows(List<String> flowNames) throws IOException {
+        if (flowNames == null || flowNames.isEmpty()) {
+            return getMessageProcessingLogs();
+        }
+
+        log.info("Fetching Message Processing Logs for {} flows...", flowNames.size());
+        String baseEndpoint = config.get("cpi.api.messageProcessingLogs", "/api/v1/MessageProcessingLogs");
+        List<MessageProcessingLog> allLogs = new ArrayList<>();
+
+        // Batch into groups of 10 to keep URL length manageable
+        int batchSize = 10;
+        for (int i = 0; i < flowNames.size(); i += batchSize) {
+            List<String> batch = flowNames.subList(i, Math.min(i + batchSize, flowNames.size()));
+            String filter = batch.stream()
+                    .map(name -> "IntegrationFlowName eq '" + name.replace("'", "''") + "'")
+                    .collect(Collectors.joining(" or "));
+            String encodedFilter = URLEncoder.encode(filter, StandardCharsets.UTF_8);
+            String endpoint = baseEndpoint + "?$filter=" + encodedFilter;
+            log.info("Fetching MPL batch {}/{} ({} flows)", (i / batchSize) + 1,
+                    (flowNames.size() + batchSize - 1) / batchSize, batch.size());
+            try {
+                List<MessageProcessingLog> batchLogs = fetchAll(endpoint, MessageProcessingLog.class);
+                allLogs.addAll(batchLogs);
+            } catch (IOException e) {
+                log.warn("Failed to fetch MPL for batch starting at {}: {}", i, e.getMessage());
+            }
+        }
+
+        log.info("Found {} Message Processing Log entries for selected flows", allLogs.size());
+        return allLogs;
+    }
+
+    // =========================================================================
     // Full Extraction
     // =========================================================================
 
@@ -173,6 +225,21 @@ public class CpiApiService {
         // 1. Fetch packages
         if (config.getBoolean("extract.packages", true)) {
             List<IntegrationPackage> packages = getIntegrationPackages();
+
+            // Filter to selected package IDs if specified (from "Fetch Packages" pre-selection)
+            String packageIdsCsv = config.get("extract.package.ids", "");
+            if (packageIdsCsv != null && !packageIdsCsv.isBlank()) {
+                Set<String> selectedIds = Arrays.stream(packageIdsCsv.split(","))
+                        .map(String::trim)
+                        .filter(s -> !s.isEmpty())
+                        .collect(Collectors.toSet());
+                int totalCount = packages.size();
+                packages = packages.stream()
+                        .filter(p -> selectedIds.contains(p.getId()))
+                        .collect(Collectors.toList());
+                log.info("Filtered packages by selection: {} -> {} (selected {} IDs)",
+                        totalCount, packages.size(), selectedIds.size());
+            }
 
             // Fetch artifacts per package
             for (IntegrationPackage pkg : packages) {
@@ -212,7 +279,15 @@ public class CpiApiService {
         if (config.getBoolean("extract.runtime.status", true)) {
             try {
                 Map<String, RuntimeArtifact> runtimeMap = getRuntimeStatusMap();
-                result.setRuntimeArtifacts(new ArrayList<>(runtimeMap.values()));
+
+                // Filter runtime artifacts to only those matching extracted flows
+                Set<String> extractedFlowIds = result.getAllFlows().stream()
+                        .map(IntegrationFlow::getId)
+                        .collect(Collectors.toSet());
+                List<RuntimeArtifact> filteredRuntime = runtimeMap.values().stream()
+                        .filter(rt -> extractedFlowIds.contains(rt.getId()))
+                        .collect(Collectors.toList());
+                result.setRuntimeArtifacts(filteredRuntime);
 
                 // Enrich flows with runtime info
                 for (IntegrationFlow flow : result.getAllFlows()) {
@@ -247,6 +322,23 @@ public class CpiApiService {
                 }
             }
             log.info("iFlow bundles: {} parsed, {} failed", parsed, failed);
+        }
+
+        // 5. Fetch message processing logs (filtered to extracted flows when available)
+        if (config.getBoolean("extract.message.logs", false)) {
+            try {
+                List<String> flowNames = result.getAllFlows().stream()
+                        .map(IntegrationFlow::getName)
+                        .filter(n -> n != null && !n.isBlank())
+                        .distinct()
+                        .collect(Collectors.toList());
+                List<MessageProcessingLog> mplLogs = flowNames.isEmpty()
+                        ? getMessageProcessingLogs()
+                        : getMessageProcessingLogsForFlows(flowNames);
+                result.setMessageProcessingLogs(mplLogs);
+            } catch (IOException e) {
+                log.error("Error fetching message processing logs: {}", e.getMessage());
+            }
         }
 
         result.computeSummary();
@@ -454,6 +546,12 @@ public class CpiApiService {
                 nextUrl = nextUrl.substring(baseUrl.length());
             }
             // else keep full URL — httpClient.get() will need adjustment
+        }
+
+        // Ensure relative URLs start with /api/v1/ — SAP __next sometimes returns
+        // bare entity names like "MessageProcessingLogs?$skiptoken=1000"
+        if (!nextUrl.startsWith("http") && !nextUrl.startsWith("/")) {
+            nextUrl = "/api/v1/" + nextUrl;
         }
 
         log.debug("Following pagination to: {}", nextUrl);

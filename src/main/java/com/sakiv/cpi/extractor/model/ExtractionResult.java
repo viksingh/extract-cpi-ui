@@ -2,6 +2,8 @@ package com.sakiv.cpi.extractor.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
+import com.sakiv.cpi.extractor.service.CpiHttpClient;
+
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -19,6 +21,9 @@ public class ExtractionResult {
     private List<IntegrationFlow> allFlows = new ArrayList<>();
     private List<ValueMapping> allValueMappings = new ArrayList<>();
     private List<RuntimeArtifact> runtimeArtifacts = new ArrayList<>();
+
+    private List<MessageProcessingLog> messageProcessingLogs = new ArrayList<>();
+    private List<CpiHttpClient.ApiCallRecord> apiCallLog = new ArrayList<>();
 
     private int totalPackages;
     private int totalFlows;
@@ -89,4 +94,10 @@ public class ExtractionResult {
 
     public List<RuntimeArtifact> getRuntimeArtifacts() { return runtimeArtifacts; }
     public void setRuntimeArtifacts(List<RuntimeArtifact> runtimeArtifacts) { this.runtimeArtifacts = runtimeArtifacts; }
+
+    public List<MessageProcessingLog> getMessageProcessingLogs() { return messageProcessingLogs; }
+    public void setMessageProcessingLogs(List<MessageProcessingLog> messageProcessingLogs) { this.messageProcessingLogs = messageProcessingLogs; }
+
+    public List<CpiHttpClient.ApiCallRecord> getApiCallLog() { return apiCallLog; }
+    public void setApiCallLog(List<CpiHttpClient.ApiCallRecord> apiCallLog) { this.apiCallLog = apiCallLog; }
 }

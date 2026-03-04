@@ -69,7 +69,8 @@
                 <CheckBox fx:id="extractValueMappingsCb" text="Value Mappings" selected="true"/>
                 <CheckBox fx:id="extractConfigurationsCb" text="Configurations" selected="true"/>
                 <CheckBox fx:id="extractRuntimeCb" text="Runtime Status" selected="true"/>
-                <CheckBox fx:id="extractIflowBundlesCb" text="iFlow Bundles (ZIP/XML)" selected="false"/>
+                <CheckBox fx:id="extractIflowBundlesCb" text="iFlow Bundles (ZIP/XML)" selected="true"/>
+                <CheckBox fx:id="extractMessageLogsCb" text="Message Processing Logs" selected="true"/>
                 <Separator/>
                 <CheckBox fx:id="dateFilterEnabledCb" text="Enable Date Filter" onAction="#onDateFilterToggled"/>
                 <HBox fx:id="dateFilterControls" spacing="8" alignment="CENTER_LEFT"
@@ -78,6 +79,7 @@
                     <ComboBox fx:id="dateFilterModeCombo" prefWidth="200"/>
                     <DatePicker fx:id="sinceDatePicker" promptText="Select date..." prefWidth="150"/>
                 </HBox>
+                <Separator/>
             </VBox>
         </TitledPane>
 
@@ -107,12 +109,26 @@
         </TitledPane>
     </HBox>
 
+    <!-- Package Filter (populated dynamically after fetch/extraction) -->
+    <TitledPane fx:id="packageFilterPane" text="Package Filter" collapsible="true" expanded="false" styleClass="section-pane">
+        <VBox spacing="4">
+            <padding><Insets top="6" right="10" bottom="6" left="10"/></padding>
+            <CheckBox fx:id="selectAllPackagesCb" text="Select All" selected="true"/>
+            <Separator/>
+            <ScrollPane fitToWidth="true" prefHeight="120" maxHeight="150">
+                <VBox fx:id="packageCheckboxContainer" spacing="3"/>
+            </ScrollPane>
+        </VBox>
+    </TitledPane>
+
     <!-- Action Buttons -->
     <HBox spacing="10" alignment="CENTER_LEFT">
         <Button text="Load Config File" onAction="#onLoadConfig" styleClass="action-btn"/>
         <Button text="Save Config" onAction="#onSaveConfig" styleClass="action-btn"/>
         <Region HBox.hgrow="ALWAYS"/>
         <Button fx:id="loadSnapshotBtn" text="Load Snapshot..." onAction="#onLoadSnapshot" styleClass="action-btn"/>
+        <Button fx:id="fetchPackagesBtn" text="Fetch Packages" onAction="#onFetchPackages"
+                styleClass="action-btn"/>
         <Button fx:id="extractButton" text="Extract &amp; Export" onAction="#onExtract"
                 styleClass="primary-btn"/>
     </HBox>
@@ -141,6 +157,12 @@
         </Tab>
         <Tab text="iFlow Adapters">
             <TableView fx:id="adaptersTable" styleClass="data-table"/>
+        </Tab>
+        <Tab text="iFlow Usage">
+            <TableView fx:id="iflowUsageTable" styleClass="data-table"/>
+        </Tab>
+        <Tab text="API Calls">
+            <TableView fx:id="apiCallsTable" styleClass="data-table"/>
         </Tab>
     </TabPane>
 

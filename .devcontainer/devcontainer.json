@@ -1,0 +1,26 @@
+{
+    "name": "CPI Artifact Extractor UI",
+    "build": {
+        "dockerfile": "Dockerfile",
+        "context": "."
+    },
+    "forwardPorts": [6080],
+    "portsAttributes": {
+        "6080": {
+            "label": "noVNC (JavaFX UI)",
+            "onAutoForward": "openBrowser"
+        }
+    },
+    "postStartCommand": "/usr/local/bin/start-vnc.sh",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "vscjava.vscode-java-pack",
+                "vscjava.vscode-maven"
+            ]
+        }
+    },
+    "remoteEnv": {
+        "DISPLAY": ":1"
+    }
+}

@@ -7,6 +7,7 @@ import com.sakiv.cpi.extractor.export.JsonExporter;
 import com.sakiv.cpi.extractor.model.*;
 import com.sakiv.cpi.extractor.service.CpiApiService;
 import com.sakiv.cpi.extractor.service.CpiHttpClient;
+import com.sakiv.cpi.extractor.service.CpiHttpClient.ApiCallRecord;
 import com.sakiv.cpi.extractor.service.SnapshotLoader;
 import com.sakiv.cpi.extractor.util.DateFilterUtil;
 import javafx.application.Platform;
@@ -17,6 +18,7 @@ import javafx.fxml.FXML;
 import javafx.scene.control.*;
 import javafx.scene.control.cell.PropertyValueFactory;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.VBox;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 import org.slf4j.Logger;
@@ -28,9 +30,12 @@ import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.function.Function;
 
 public class MainController {
@@ -75,6 +80,14 @@ public class MainController {
     @FXML private ComboBox<DateFilterUtil.FilterMode> dateFilterModeCombo;
     @FXML private DatePicker sinceDatePicker;
 
+    // Package filter (checkbox-based)
+    @FXML private VBox packageCheckboxContainer;
+    @FXML private CheckBox selectAllPackagesCb;
+    private boolean updatingPackageCheckboxes; // guard against recursive listener calls
+
+    // Message Processing Logs
+    @FXML private CheckBox extractMessageLogsCb;
+
     // Export settings
     @FXML private ComboBox<String> exportFormatCombo;
     @FXML private TextField outputDirField;
@@ -89,6 +102,11 @@ public class MainController {
     @FXML private TableView<ConfigRow> configsTable;
     @FXML private TableView<RuntimeArtifact> runtimeTable;
     @FXML private TableView<AdapterRow> adaptersTable;
+    @FXML private TableView<IFlowUsageRow> iflowUsageTable;
+    @FXML private TableView<ApiCallRow> apiCallsTable;
+
+    // Package filter pane
+    @FXML private TitledPane packageFilterPane;
 
     // Log + progress
     @FXML private TextArea logTextArea;
@@ -96,6 +114,10 @@ public class MainController {
     @FXML private Label progressLabel;
     @FXML private Button extractButton;
     @FXML private Button loadSnapshotBtn;
+    @FXML private Button fetchPackagesBtn;
+
+    // Pre-fetched packages from "Fetch Packages" step
+    private List<IntegrationPackage> fetchedPackages;
 
     // @author Vikas Singh | Created: 2026-02-07
     @FXML
@@ -122,11 +144,24 @@ public class MainController {
         initConfigsTable();
         initRuntimeTable();
         initAdaptersTable();
+        initIflowUsageTable();
+        initApiCallsTable();
 
         // Re-apply filter automatically whenever filter settings change after data is loaded
         dateFilterEnabledCb.selectedProperty().addListener((obs, old, val) -> reapplyFilter());
         sinceDatePicker.valueProperty().addListener((obs, old, val) -> reapplyFilter());
         dateFilterModeCombo.valueProperty().addListener((obs, old, val) -> reapplyFilter());
+
+        // Select All checkbox toggles all package checkboxes
+        selectAllPackagesCb.selectedProperty().addListener((obs, old, val) -> {
+            if (updatingPackageCheckboxes) return;
+            updatingPackageCheckboxes = true;
+            for (var node : packageCheckboxContainer.getChildren()) {
+                if (node instanceof CheckBox cb) cb.setSelected(val);
+            }
+            updatingPackageCheckboxes = false;
+            reapplyFilter();
+        });
     }
 
     // =========================================================================
@@ -353,7 +388,8 @@ public class MainController {
             extractValueMappingsCb.setSelected(getBool(props, "extract.valuemappings", true));
             extractConfigurationsCb.setSelected(getBool(props, "extract.configurations", true));
             extractRuntimeCb.setSelected(getBool(props, "extract.runtime.status", true));
-            extractIflowBundlesCb.setSelected(getBool(props, "extract.iflow.bundles", false));
+            extractIflowBundlesCb.setSelected(getBool(props, "extract.iflow.bundles", true));
+            extractMessageLogsCb.setSelected(getBool(props, "extract.message.logs", true));
 
             // Date filter
             dateFilterEnabledCb.setSelected(getBool(props, "filter.date.enabled", false));
@@ -449,6 +485,7 @@ public class MainController {
                 extractButton.setDisable(false);
                 loadSnapshotBtn.setDisable(false);
                 saveOriginals(result);
+                populatePackageCheckboxes(result.getPackages());
                 applyDateFilter(result);
                 populateResults(result);
                 appendLog("Snapshot loaded from: " + file.getAbsolutePath());
@@ -472,6 +509,75 @@ public class MainController {
         thread.start();
     }
 
+    @FXML
+    private void onFetchPackages() {
+        if (tenantUrlField.getText().isBlank()) {
+            showError("Validation Error", "Tenant URL is required.");
+            return;
+        }
+
+        final Properties props = buildPropertiesFromForm();
+
+        fetchPackagesBtn.setDisable(true);
+        extractButton.setDisable(true);
+        progressBar.setVisible(true);
+        progressBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
+        progressLabel.setText("Fetching packages...");
+        logTextArea.clear();
+
+        Task<List<IntegrationPackage>> task = new Task<>() {
+            @Override
+            protected List<IntegrationPackage> call() throws Exception {
+                Path tempConfig = Files.createTempFile("cpi-ui-config-", ".properties");
+                try (OutputStream os = new FileOutputStream(tempConfig.toFile())) {
+                    props.store(os, null);
+                }
+
+                CpiConfiguration config = new CpiConfiguration(tempConfig.toString());
+                config.validate();
+
+                List<IntegrationPackage> packages;
+                try (CpiHttpClient httpClient = new CpiHttpClient(config)) {
+                    CpiApiService apiService = new CpiApiService(config, httpClient);
+                    packages = apiService.getIntegrationPackages();
+                }
+
+                Files.deleteIfExists(tempConfig);
+                return packages;
+            }
+        };
+
+        task.setOnSucceeded(event -> {
+            List<IntegrationPackage> packages = task.getValue();
+            Platform.runLater(() -> {
+                fetchedPackages = packages;
+                populatePackageCheckboxes(packages);
+                packageFilterPane.setExpanded(true);
+                progressBar.setProgress(1.0);
+                progressLabel.setText("Fetched " + packages.size() + " packages.");
+                fetchPackagesBtn.setDisable(false);
+                extractButton.setDisable(false);
+                appendLog("Fetched " + packages.size() + " packages. Select the ones to extract, then click 'Extract & Export'.");
+            });
+        });
+
+        task.setOnFailed(event -> {
+            Throwable ex = task.getException();
+            Platform.runLater(() -> {
+                progressBar.setVisible(false);
+                progressLabel.setText("Fetch failed.");
+                fetchPackagesBtn.setDisable(false);
+                extractButton.setDisable(false);
+                appendLog("ERROR: " + ex.getMessage());
+                showError("Fetch Packages Failed", ex.getMessage());
+            });
+        });
+
+        Thread thread = new Thread(task, "cpi-fetch-packages-thread");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
     // @author Vikas Singh | Created: 2026-02-07
     @FXML
     private void onExtract() {
@@ -485,6 +591,27 @@ public class MainController {
         // JavaFX UI controls must only be read from the FX application thread.
         final Properties props = buildPropertiesFromForm();
         final String exportFormat = getExportFormat();
+
+        // If packages were pre-fetched, collect checked package IDs
+        if (fetchedPackages != null) {
+            Set<String> checkedNames = new TreeSet<>();
+            for (var node : packageCheckboxContainer.getChildren()) {
+                if (node instanceof CheckBox cb && cb.isSelected()) {
+                    checkedNames.add(cb.getText());
+                }
+            }
+            // Build comma-separated list of selected package IDs
+            List<String> selectedIds = new ArrayList<>();
+            for (IntegrationPackage pkg : fetchedPackages) {
+                String name = pkg.getName() != null ? pkg.getName() : pkg.getId();
+                if (checkedNames.contains(name)) {
+                    selectedIds.add(pkg.getId());
+                }
+            }
+            if (!selectedIds.isEmpty() && selectedIds.size() < fetchedPackages.size()) {
+                props.setProperty("extract.package.ids", String.join(",", selectedIds));
+            }
+        }
 
         extractButton.setDisable(true);
         progressBar.setVisible(true);
@@ -510,6 +637,7 @@ public class MainController {
                 try (CpiHttpClient httpClient = new CpiHttpClient(config)) {
                     CpiApiService apiService = new CpiApiService(config, httpClient);
                     result = apiService.extractAll();
+                    result.setApiCallLog(new ArrayList<>(httpClient.getApiCallLog()));
                 }
 
                 Files.deleteIfExists(tempConfig);
@@ -526,6 +654,7 @@ public class MainController {
                 progressLabel.setText("Applying filter...");
                 // Save originals BEFORE filtering so re-apply works after user changes filter
                 saveOriginals(result);
+                populatePackageCheckboxes(result.getPackages());
                 // Apply filter on FX thread — reads current UI control values safely
                 applyDateFilter(result);
                 populateResults(result);
@@ -569,6 +698,26 @@ public class MainController {
         }
     }
 
+    private void populatePackageCheckboxes(List<IntegrationPackage> packages) {
+        updatingPackageCheckboxes = true;
+        packageCheckboxContainer.getChildren().clear();
+        Set<String> names = new TreeSet<>();
+        for (IntegrationPackage pkg : packages) {
+            String name = pkg.getName() != null ? pkg.getName() : pkg.getId();
+            names.add(name);
+        }
+        for (String name : names) {
+            CheckBox cb = new CheckBox(name);
+            cb.setSelected(true);
+            cb.selectedProperty().addListener((obs, old, val) -> {
+                if (!updatingPackageCheckboxes) reapplyFilter();
+            });
+            packageCheckboxContainer.getChildren().add(cb);
+        }
+        selectAllPackagesCb.setSelected(true);
+        updatingPackageCheckboxes = false;
+    }
+
     // @author Vikas Singh | Created: 2026-02-22
     private void reapplyFilter() {
         if (currentResult == null) return;
@@ -584,7 +733,42 @@ public class MainController {
             pkg.setValueMappings(vms != null ? new ArrayList<>(vms) : new ArrayList<>());
         }
         applyDateFilter(currentResult);
+        applyPackageFilter(currentResult);
         populateResults(currentResult);
+    }
+
+    private void applyPackageFilter(ExtractionResult result) {
+        // Collect checked package names
+        Set<String> checkedNames = new TreeSet<>();
+        boolean allChecked = true;
+        for (var node : packageCheckboxContainer.getChildren()) {
+            if (node instanceof CheckBox cb) {
+                if (cb.isSelected()) {
+                    checkedNames.add(cb.getText());
+                } else {
+                    allChecked = false;
+                }
+            }
+        }
+        // If all checked or no checkboxes exist, show everything
+        if (allChecked || checkedNames.isEmpty()) return;
+
+        List<IntegrationPackage> filteredPackages = new ArrayList<>();
+        List<IntegrationFlow> filteredFlows = new ArrayList<>();
+        List<ValueMapping> filteredVMs = new ArrayList<>();
+
+        for (IntegrationPackage pkg : result.getPackages()) {
+            String pkgName = pkg.getName() != null ? pkg.getName() : pkg.getId();
+            if (checkedNames.contains(pkgName)) {
+                filteredPackages.add(pkg);
+                filteredFlows.addAll(pkg.getIntegrationFlows());
+                filteredVMs.addAll(pkg.getValueMappings());
+            }
+        }
+
+        result.setPackages(filteredPackages);
+        result.setAllFlows(filteredFlows);
+        result.setAllValueMappings(filteredVMs);
     }
 
     // @author Vikas Singh | Created: 2026-02-22
@@ -677,7 +861,62 @@ public class MainController {
                 }
             }
         }
+        log.info("Adapters tab: {} rows from {} flows ({} bundle-parsed)",
+                adapterRows.size(), result.getAllFlows().size(),
+                result.getAllFlows().stream().filter(IntegrationFlow::isBundleParsed).count());
         adaptersTable.setItems(FXCollections.observableArrayList(adapterRows));
+
+        // iFlow Usage tab — aggregate MPL entries by flow name, filtered to selected packages
+        List<IFlowUsageRow> usageRows = new ArrayList<>();
+        if (result.getMessageProcessingLogs() != null && !result.getMessageProcessingLogs().isEmpty()) {
+            // Build set of flow names from extracted flows to filter MPL entries
+            Set<String> extractedFlowNames = new TreeSet<>();
+            for (IntegrationFlow flow : result.getAllFlows()) {
+                if (flow.getName() != null) extractedFlowNames.add(flow.getName());
+                if (flow.getId() != null) extractedFlowNames.add(flow.getId());
+            }
+
+            Map<String, List<MessageProcessingLog>> byFlow = new LinkedHashMap<>();
+            for (MessageProcessingLog mpl : result.getMessageProcessingLogs()) {
+                String name = mpl.getIntegrationFlowName();
+                if (name == null || name.isBlank()) continue;
+                if (!extractedFlowNames.contains(name)) continue;
+                byFlow.computeIfAbsent(name, k -> new ArrayList<>()).add(mpl);
+            }
+            for (var entry : byFlow.entrySet()) {
+                List<MessageProcessingLog> logs = entry.getValue();
+                int total = logs.size();
+                int completed = 0, failed = 0, retry = 0, escalated = 0;
+                String lastExec = "";
+                String lastStatus = "";
+                for (MessageProcessingLog m : logs) {
+                    String s = m.getStatus() != null ? m.getStatus().toUpperCase() : "";
+                    switch (s) {
+                        case "COMPLETED" -> completed++;
+                        case "FAILED" -> failed++;
+                        case "RETRY" -> retry++;
+                        case "ESCALATED" -> escalated++;
+                    }
+                    String logEnd = m.getLogEnd() != null ? m.getLogEnd() : "";
+                    if (logEnd.compareTo(lastExec) > 0) {
+                        lastExec = logEnd;
+                        lastStatus = m.getStatus() != null ? m.getStatus() : "";
+                    }
+                }
+                usageRows.add(new IFlowUsageRow(entry.getKey(), total, completed, failed,
+                        retry, escalated,
+                        DateFilterUtil.formatCpiDate(lastExec), lastStatus));
+            }
+        }
+        iflowUsageTable.setItems(FXCollections.observableArrayList(usageRows));
+
+        // API Calls tab
+        List<ApiCallRow> apiCallRows = new ArrayList<>();
+        for (CpiHttpClient.ApiCallRecord rec : result.getApiCallLog()) {
+            apiCallRows.add(new ApiCallRow(rec.method(), rec.path(), rec.statusCode(),
+                    rec.durationMs() + " ms"));
+        }
+        apiCallsTable.setItems(FXCollections.observableArrayList(apiCallRows));
 
         // Switch to Summary tab
         resultsTabPane.getSelectionModel().selectFirst();
@@ -794,6 +1033,58 @@ public class MainController {
         adaptersTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_SUBSEQUENT_COLUMNS);
     }
 
+    @SuppressWarnings("unchecked")
+    private void initIflowUsageTable() {
+        TableColumn<IFlowUsageRow, String> nameCol = new TableColumn<>("iFlow Name");
+        nameCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().flowName()));
+        nameCol.setPrefWidth(250);
+
+        TableColumn<IFlowUsageRow, String> totalCol = new TableColumn<>("Total");
+        totalCol.setCellValueFactory(cd -> new SimpleStringProperty(String.valueOf(cd.getValue().total())));
+
+        TableColumn<IFlowUsageRow, String> completedCol = new TableColumn<>("Completed");
+        completedCol.setCellValueFactory(cd -> new SimpleStringProperty(String.valueOf(cd.getValue().completed())));
+
+        TableColumn<IFlowUsageRow, String> failedCol = new TableColumn<>("Failed");
+        failedCol.setCellValueFactory(cd -> new SimpleStringProperty(String.valueOf(cd.getValue().failed())));
+
+        TableColumn<IFlowUsageRow, String> retryCol = new TableColumn<>("Retry");
+        retryCol.setCellValueFactory(cd -> new SimpleStringProperty(String.valueOf(cd.getValue().retry())));
+
+        TableColumn<IFlowUsageRow, String> escalatedCol = new TableColumn<>("Escalated");
+        escalatedCol.setCellValueFactory(cd -> new SimpleStringProperty(String.valueOf(cd.getValue().escalated())));
+
+        TableColumn<IFlowUsageRow, String> lastExecCol = new TableColumn<>("Last Execution");
+        lastExecCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().lastExecution()));
+        lastExecCol.setPrefWidth(180);
+
+        TableColumn<IFlowUsageRow, String> lastStatusCol = new TableColumn<>("Last Status");
+        lastStatusCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().lastStatus()));
+
+        iflowUsageTable.getColumns().addAll(nameCol, totalCol, completedCol, failedCol,
+                retryCol, escalatedCol, lastExecCol, lastStatusCol);
+        iflowUsageTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_SUBSEQUENT_COLUMNS);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void initApiCallsTable() {
+        TableColumn<ApiCallRow, String> methodCol = new TableColumn<>("Method");
+        methodCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().method()));
+
+        TableColumn<ApiCallRow, String> pathCol = new TableColumn<>("Path");
+        pathCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().path()));
+        pathCol.setPrefWidth(400);
+
+        TableColumn<ApiCallRow, String> statusCol = new TableColumn<>("Status Code");
+        statusCol.setCellValueFactory(cd -> new SimpleStringProperty(String.valueOf(cd.getValue().statusCode())));
+
+        TableColumn<ApiCallRow, String> durationCol = new TableColumn<>("Duration");
+        durationCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().duration()));
+
+        apiCallsTable.getColumns().addAll(methodCol, pathCol, statusCol, durationCol);
+        apiCallsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_SUBSEQUENT_COLUMNS);
+    }
+
     // @author Vikas Singh | Created: 2026-02-08
     private <T> void addColumn(TableView<T> table, String title, String property) {
         TableColumn<T, String> col = new TableColumn<>(title);
@@ -842,6 +1133,7 @@ public class MainController {
         props.setProperty("extract.configurations", String.valueOf(extractConfigurationsCb.isSelected()));
         props.setProperty("extract.runtime.status", String.valueOf(extractRuntimeCb.isSelected()));
         props.setProperty("extract.iflow.bundles", String.valueOf(extractIflowBundlesCb.isSelected()));
+        props.setProperty("extract.message.logs", String.valueOf(extractMessageLogsCb.isSelected()));
 
         props.setProperty("filter.date.enabled", String.valueOf(dateFilterEnabledCb.isSelected()));
         LocalDate sinceDate = sinceDatePicker.getValue();
@@ -916,4 +1208,9 @@ public class MainController {
     public record AdapterRow(String flowId, String flowName,
                              String adapterType, String direction,
                              String address, String transportProtocol) {}
+
+    public record ApiCallRow(String method, String path, int statusCode, String duration) {}
+
+    public record IFlowUsageRow(String flowName, int total, int completed, int failed,
+                                int retry, int escalated, String lastExecution, String lastStatus) {}
 }
