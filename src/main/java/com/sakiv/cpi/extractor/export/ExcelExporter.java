@@ -2,6 +2,7 @@
 package com.sakiv.cpi.extractor.export;
 
 import com.sakiv.cpi.extractor.model.*;
+import com.sakiv.cpi.extractor.util.DateFilterUtil;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -75,8 +76,8 @@ public class ExcelExporter {
                 createScriptsSheet(workbook, headerStyle, bundledFlows);
             }
 
-            // Sheet: iFlow Usage (aggregated MPL)
-            if (result.getMessageProcessingLogs() != null && !result.getMessageProcessingLogs().isEmpty()) {
+            // Sheet: iFlow Usage (all flows with MPL aggregation)
+            if (!result.getAllFlows().isEmpty()) {
                 createIFlowUsageSheet(workbook, headerStyle, result);
             }
 
@@ -434,17 +435,31 @@ public class ExcelExporter {
     private void createIFlowUsageSheet(Workbook wb, CellStyle headerStyle, ExtractionResult result) {
         Sheet sheet = wb.createSheet("iFlow Usage");
         String[] headers = {
-                "iFlow Name", "Total", "Completed", "Failed", "Retry", "Escalated",
+                "Package", "iFlow Name", "Total", "Completed", "Failed", "Retry", "Escalated",
                 "Last Execution", "Last Status"
         };
         createHeaderRow(sheet, headerStyle, headers);
 
-        // Aggregate MPL entries by flow name
-        java.util.Map<String, java.util.List<MessageProcessingLog>> byFlow = new java.util.LinkedHashMap<>();
-        for (MessageProcessingLog mpl : result.getMessageProcessingLogs()) {
-            String name = mpl.getIntegrationFlowName();
-            if (name == null || name.isBlank()) continue;
-            byFlow.computeIfAbsent(name, k -> new java.util.ArrayList<>()).add(mpl);
+        // Build MPL lookup by flow name
+        java.util.Map<String, java.util.List<MessageProcessingLog>> mplByFlow = new java.util.LinkedHashMap<>();
+        if (result.getMessageProcessingLogs() != null) {
+            for (MessageProcessingLog mpl : result.getMessageProcessingLogs()) {
+                String name = mpl.getIntegrationFlowName();
+                if (name != null && !name.isBlank()) {
+                    mplByFlow.computeIfAbsent(name, k -> new java.util.ArrayList<>()).add(mpl);
+                }
+            }
+        }
+
+        // Build flow-to-package mapping
+        java.util.Map<String, String> flowToPackage = new java.util.LinkedHashMap<>();
+        for (IntegrationPackage pkg : result.getPackages()) {
+            for (IntegrationFlow f : pkg.getIntegrationFlows()) {
+                String flowName = f.getName() != null ? f.getName() : f.getId();
+                if (flowName != null) {
+                    flowToPackage.put(flowName, pkg.getName() != null ? pkg.getName() : pkg.getId());
+                }
+            }
         }
 
         CellStyle errorStyle = wb.createCellStyle();
@@ -453,40 +468,64 @@ public class ExcelExporter {
         errorFont.setBold(true);
         errorStyle.setFont(errorFont);
 
-        int rowNum = 1;
-        for (var entry : byFlow.entrySet()) {
-            java.util.List<MessageProcessingLog> logs = entry.getValue();
-            int total = logs.size();
-            int completed = 0, failed = 0, retry = 0, escalated = 0;
-            String lastExec = "";
-            String lastStatus = "";
-            for (MessageProcessingLog m : logs) {
-                String s = m.getStatus() != null ? m.getStatus().toUpperCase() : "";
-                switch (s) {
-                    case "COMPLETED" -> completed++;
-                    case "FAILED" -> failed++;
-                    case "RETRY" -> retry++;
-                    case "ESCALATED" -> escalated++;
-                }
-                String logEnd = m.getLogEnd() != null ? m.getLogEnd() : "";
-                if (logEnd.compareTo(lastExec) > 0) {
-                    lastExec = logEnd;
-                    lastStatus = m.getStatus() != null ? m.getStatus() : "";
-                }
-            }
+        CellStyle notUsedStyle = wb.createCellStyle();
+        Font notUsedFont = wb.createFont();
+        notUsedFont.setColor(IndexedColors.GREY_50_PERCENT.getIndex());
+        notUsedFont.setItalic(true);
+        notUsedStyle.setFont(notUsedFont);
 
+        int rowNum = 1;
+        for (IntegrationFlow flow : result.getAllFlows()) {
+            String flowName = flow.getName() != null ? flow.getName() : flow.getId();
+            String flowId = flow.getId() != null ? flow.getId() : flowName;
+            if (flowName == null) continue;
+            String pkgName = flowToPackage.getOrDefault(flowName, "");
+
+            java.util.List<MessageProcessingLog> logs = mplByFlow.get(flowId);
             Row row = sheet.createRow(rowNum++);
             int col = 0;
-            row.createCell(col++).setCellValue(entry.getKey());
-            row.createCell(col++).setCellValue(total);
-            row.createCell(col++).setCellValue(completed);
-            Cell failedCell = row.createCell(col++);
-            failedCell.setCellValue(failed);
-            if (failed > 0) failedCell.setCellStyle(errorStyle);
-            row.createCell(col++).setCellValue(retry);
-            row.createCell(col++).setCellValue(escalated);
-            row.createCell(col++).setCellValue(formatCpiDate(lastExec));
-            row.createCell(col++).setCellValue(nullSafe(lastStatus));
+            row.createCell(col++).setCellValue(nullSafe(pkgName));
+            row.createCell(col++).setCellValue(nullSafe(flowName));
+
+            if (logs == null || logs.isEmpty()) {
+                row.createCell(col++).setCellValue(0);
+                row.createCell(col++).setCellValue(0);
+                row.createCell(col++).setCellValue(0);
+                row.createCell(col++).setCellValue(0);
+                row.createCell(col++).setCellValue(0);
+                row.createCell(col++).setCellValue("");
+                Cell statusCell = row.createCell(col++);
+                statusCell.setCellValue("Not Used");
+                statusCell.setCellStyle(notUsedStyle);
+            } else {
+                int total = logs.size();
+                int completed = 0, failed = 0, retry = 0, escalated = 0;
+                String lastExec = "";
+                String lastStatus = "";
+                for (MessageProcessingLog m : logs) {
+                    String s = m.getStatus() != null ? m.getStatus().toUpperCase() : "";
+                    switch (s) {
+                        case "COMPLETED" -> completed++;
+                        case "FAILED" -> failed++;
+                        case "RETRY" -> retry++;
+                        case "ESCALATED" -> escalated++;
+                    }
+                    String logEnd = m.getLogEnd() != null ? m.getLogEnd() : "";
+                    if (logEnd.compareTo(lastExec) > 0) {
+                        lastExec = logEnd;
+                        lastStatus = m.getStatus() != null ? m.getStatus() : "";
+                    }
+                }
+                row.createCell(col++).setCellValue(total);
+                row.createCell(col++).setCellValue(completed);
+                Cell failedCell = row.createCell(col++);
+                failedCell.setCellValue(failed);
+                if (failed > 0) failedCell.setCellStyle(errorStyle);
+                row.createCell(col++).setCellValue(retry);
+                row.createCell(col++).setCellValue(escalated);
+                row.createCell(col++).setCellValue(formatCpiDate(lastExec));
+                row.createCell(col++).setCellValue(nullSafe(lastStatus));
+            }
         }
 
         autoSizeColumns(sheet, headers.length);
@@ -611,33 +650,9 @@ public class ExcelExporter {
         }
     }
 
-    /**
-     * Format SAP CPI OData date strings like "/Date(1234567890000+0530)/" to human-readable.
-     * Correctly strips the optional timezone offset before parsing the epoch ms.
-     */
     // @author Vikas Singh | Created: 2025-12-14
     private String formatCpiDate(String cpiDate) {
-        if (cpiDate == null || cpiDate.isBlank()) return "";
-        try {
-            if (cpiDate.contains("/Date(")) {
-                int start = cpiDate.indexOf('(') + 1;
-                int end = cpiDate.indexOf(')', start);
-                if (end < 0) end = cpiDate.length();
-                String inner = cpiDate.substring(start, end);
-                int tzPlus = inner.indexOf('+');
-                int tzMinus = inner.lastIndexOf('-');
-                if (tzMinus == 0) tzMinus = -1;
-                int tzSep = tzPlus >= 0 ? tzPlus : tzMinus;
-                String epochPart = (tzSep > 0) ? inner.substring(0, tzSep) : inner;
-                long epoch = Long.parseLong(epochPart.trim());
-                java.time.Instant instant = java.time.Instant.ofEpochMilli(epoch);
-                return java.time.LocalDateTime.ofInstant(instant, java.time.ZoneId.systemDefault())
-                        .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-            }
-            return cpiDate;
-        } catch (Exception e) {
-            return cpiDate;
-        }
+        return DateFilterUtil.formatCpiDate(cpiDate);
     }
 
     // @author Vikas Singh | Created: 2025-12-14

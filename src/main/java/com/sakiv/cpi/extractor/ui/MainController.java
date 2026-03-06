@@ -83,6 +83,7 @@ public class MainController {
     // Package filter (checkbox-based)
     @FXML private VBox packageCheckboxContainer;
     @FXML private CheckBox selectAllPackagesCb;
+    @FXML private TextField packageSearchField;
     private boolean updatingPackageCheckboxes; // guard against recursive listener calls
 
     // Message Processing Logs
@@ -152,15 +153,27 @@ public class MainController {
         sinceDatePicker.valueProperty().addListener((obs, old, val) -> reapplyFilter());
         dateFilterModeCombo.valueProperty().addListener((obs, old, val) -> reapplyFilter());
 
-        // Select All checkbox toggles all package checkboxes
+        // Select All checkbox toggles all visible package checkboxes
         selectAllPackagesCb.selectedProperty().addListener((obs, old, val) -> {
             if (updatingPackageCheckboxes) return;
             updatingPackageCheckboxes = true;
             for (var node : packageCheckboxContainer.getChildren()) {
-                if (node instanceof CheckBox cb) cb.setSelected(val);
+                if (node instanceof CheckBox cb && cb.isVisible()) cb.setSelected(val);
             }
             updatingPackageCheckboxes = false;
             reapplyFilter();
+        });
+
+        // Package search field filters the checkbox list
+        packageSearchField.textProperty().addListener((obs, old, val) -> {
+            String filter = val != null ? val.toLowerCase().trim() : "";
+            for (var node : packageCheckboxContainer.getChildren()) {
+                if (node instanceof CheckBox cb) {
+                    boolean match = filter.isEmpty() || cb.getText().toLowerCase().contains(filter);
+                    cb.setVisible(match);
+                    cb.setManaged(match);
+                }
+            }
         });
     }
 
@@ -773,7 +786,7 @@ public class MainController {
 
     // @author Vikas Singh | Created: 2026-02-22
     private void startExport(ExtractionResult result, String exportFormat, Properties props) {
-        String outputDir = props.getProperty("export.output.dir", "./output");
+        String outputDir = props.getProperty("export.output.dir", "C:\\temp\\CPI Extracts");
         String prefix = props.getProperty("export.filename.prefix", "cpi_artifacts");
         Task<Void> exportTask = new Task<>() {
             @Override
@@ -866,46 +879,63 @@ public class MainController {
                 result.getAllFlows().stream().filter(IntegrationFlow::isBundleParsed).count());
         adaptersTable.setItems(FXCollections.observableArrayList(adapterRows));
 
-        // iFlow Usage tab — aggregate MPL entries by flow name, filtered to selected packages
+        // iFlow Usage tab — show all flows with MPL aggregation; mark unused flows
         List<IFlowUsageRow> usageRows = new ArrayList<>();
-        if (result.getMessageProcessingLogs() != null && !result.getMessageProcessingLogs().isEmpty()) {
-            // Build set of flow names from extracted flows to filter MPL entries
-            Set<String> extractedFlowNames = new TreeSet<>();
-            for (IntegrationFlow flow : result.getAllFlows()) {
-                if (flow.getName() != null) extractedFlowNames.add(flow.getName());
-                if (flow.getId() != null) extractedFlowNames.add(flow.getId());
-            }
-
-            Map<String, List<MessageProcessingLog>> byFlow = new LinkedHashMap<>();
-            for (MessageProcessingLog mpl : result.getMessageProcessingLogs()) {
-                String name = mpl.getIntegrationFlowName();
-                if (name == null || name.isBlank()) continue;
-                if (!extractedFlowNames.contains(name)) continue;
-                byFlow.computeIfAbsent(name, k -> new ArrayList<>()).add(mpl);
-            }
-            for (var entry : byFlow.entrySet()) {
-                List<MessageProcessingLog> logs = entry.getValue();
-                int total = logs.size();
-                int completed = 0, failed = 0, retry = 0, escalated = 0;
-                String lastExec = "";
-                String lastStatus = "";
-                for (MessageProcessingLog m : logs) {
-                    String s = m.getStatus() != null ? m.getStatus().toUpperCase() : "";
-                    switch (s) {
-                        case "COMPLETED" -> completed++;
-                        case "FAILED" -> failed++;
-                        case "RETRY" -> retry++;
-                        case "ESCALATED" -> escalated++;
-                    }
-                    String logEnd = m.getLogEnd() != null ? m.getLogEnd() : "";
-                    if (logEnd.compareTo(lastExec) > 0) {
-                        lastExec = logEnd;
-                        lastStatus = m.getStatus() != null ? m.getStatus() : "";
+        {
+            // Build MPL lookup by flow name
+            Map<String, List<MessageProcessingLog>> mplByFlow = new LinkedHashMap<>();
+            if (result.getMessageProcessingLogs() != null) {
+                for (MessageProcessingLog mpl : result.getMessageProcessingLogs()) {
+                    String name = mpl.getIntegrationFlowName();
+                    if (name != null && !name.isBlank()) {
+                        mplByFlow.computeIfAbsent(name, k -> new ArrayList<>()).add(mpl);
                     }
                 }
-                usageRows.add(new IFlowUsageRow(entry.getKey(), total, completed, failed,
-                        retry, escalated,
-                        DateFilterUtil.formatCpiDate(lastExec), lastStatus));
+            }
+
+            // Build flow-to-package mapping
+            Map<String, String> flowToPackage = new LinkedHashMap<>();
+            for (IntegrationPackage pkg : result.getPackages()) {
+                for (IntegrationFlow flow : pkg.getIntegrationFlows()) {
+                    String flowName = flow.getName() != null ? flow.getName() : flow.getId();
+                    if (flowName != null) {
+                        flowToPackage.put(flowName, pkg.getName() != null ? pkg.getName() : pkg.getId());
+                    }
+                }
+            }
+
+            // Iterate all extracted flows
+            for (IntegrationFlow flow : result.getAllFlows()) {
+                String flowName = flow.getName() != null ? flow.getName() : flow.getId();
+                String flowId = flow.getId() != null ? flow.getId() : flowName;
+                if (flowName == null) continue;
+                String pkgName = flowToPackage.getOrDefault(flowName, "");
+
+                List<MessageProcessingLog> logs = mplByFlow.get(flowId);
+                if (logs == null || logs.isEmpty()) {
+                    usageRows.add(new IFlowUsageRow(pkgName, flowName, 0, 0, 0, 0, 0, "", "Not Used"));
+                } else {
+                    int total = logs.size();
+                    int completed = 0, failed = 0, retry = 0, escalated = 0;
+                    String lastExec = "";
+                    String lastStatus = "";
+                    for (MessageProcessingLog m : logs) {
+                        String s = m.getStatus() != null ? m.getStatus().toUpperCase() : "";
+                        switch (s) {
+                            case "COMPLETED" -> completed++;
+                            case "FAILED" -> failed++;
+                            case "RETRY" -> retry++;
+                            case "ESCALATED" -> escalated++;
+                        }
+                        String logEnd = m.getLogEnd() != null ? m.getLogEnd() : "";
+                        if (logEnd.compareTo(lastExec) > 0) {
+                            lastExec = logEnd;
+                            lastStatus = m.getStatus() != null ? m.getStatus() : "";
+                        }
+                    }
+                    usageRows.add(new IFlowUsageRow(pkgName, flowName, total, completed, failed,
+                            retry, escalated, DateFilterUtil.formatCpiDate(lastExec), lastStatus));
+                }
             }
         }
         iflowUsageTable.setItems(FXCollections.observableArrayList(usageRows));
@@ -1035,6 +1065,10 @@ public class MainController {
 
     @SuppressWarnings("unchecked")
     private void initIflowUsageTable() {
+        TableColumn<IFlowUsageRow, String> pkgCol = new TableColumn<>("Package");
+        pkgCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().packageName()));
+        pkgCol.setPrefWidth(200);
+
         TableColumn<IFlowUsageRow, String> nameCol = new TableColumn<>("iFlow Name");
         nameCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().flowName()));
         nameCol.setPrefWidth(250);
@@ -1061,7 +1095,7 @@ public class MainController {
         TableColumn<IFlowUsageRow, String> lastStatusCol = new TableColumn<>("Last Status");
         lastStatusCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().lastStatus()));
 
-        iflowUsageTable.getColumns().addAll(nameCol, totalCol, completedCol, failedCol,
+        iflowUsageTable.getColumns().addAll(pkgCol, nameCol, totalCol, completedCol, failedCol,
                 retryCol, escalatedCol, lastExecCol, lastStatusCol);
         iflowUsageTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_SUBSEQUENT_COLUMNS);
     }
@@ -1211,6 +1245,6 @@ public class MainController {
 
     public record ApiCallRow(String method, String path, int statusCode, String duration) {}
 
-    public record IFlowUsageRow(String flowName, int total, int completed, int failed,
+    public record IFlowUsageRow(String packageName, String flowName, int total, int completed, int failed,
                                 int retry, int escalated, String lastExecution, String lastStatus) {}
 }

@@ -98,7 +98,7 @@
                           GridPane.columnSpan="2" maxWidth="Infinity"/>
 
                 <Label text="Output:" GridPane.columnIndex="0" GridPane.rowIndex="1"/>
-                <TextField fx:id="outputDirField" text="./output" GridPane.columnIndex="1" GridPane.rowIndex="1"/>
+                <TextField fx:id="outputDirField" text="C:\temp\CPI Extracts" GridPane.columnIndex="1" GridPane.rowIndex="1"/>
                 <Button text="..." onAction="#onBrowseOutputDir" GridPane.columnIndex="2" GridPane.rowIndex="1"
                         styleClass="browse-btn"/>
 
@@ -111,12 +111,21 @@
 
     <!-- Package Filter (populated dynamically after fetch/extraction) -->
     <TitledPane fx:id="packageFilterPane" text="Package Filter" collapsible="true" expanded="false" styleClass="section-pane">
-        <VBox spacing="4">
-            <padding><Insets top="6" right="10" bottom="6" left="10"/></padding>
-            <CheckBox fx:id="selectAllPackagesCb" text="Select All" selected="true"/>
+        <VBox spacing="6">
+            <padding><Insets top="8" right="10" bottom="8" left="10"/></padding>
+            <HBox spacing="12" alignment="CENTER_LEFT">
+                <CheckBox fx:id="selectAllPackagesCb" text="Select All" selected="true"/>
+                <Region HBox.hgrow="ALWAYS"/>
+                <Label text="Search:"/>
+                <TextField fx:id="packageSearchField" promptText="Filter packages..."
+                           prefWidth="250"/>
+            </HBox>
             <Separator/>
-            <ScrollPane fitToWidth="true" prefHeight="120" maxHeight="150">
-                <VBox fx:id="packageCheckboxContainer" spacing="3"/>
+            <ScrollPane fitToWidth="true" prefHeight="200" maxHeight="300"
+                        style="-fx-background-color: transparent;">
+                <VBox fx:id="packageCheckboxContainer" spacing="5">
+                    <padding><Insets top="4" right="4" bottom="4" left="4"/></padding>
+                </VBox>
             </ScrollPane>
         </VBox>
     </TitledPane>

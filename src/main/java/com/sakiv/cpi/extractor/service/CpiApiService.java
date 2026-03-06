@@ -14,6 +14,8 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -187,13 +189,18 @@ public class CpiApiService {
         // Deduplicate flow names to ensure each iFlow is called only once
         List<String> uniqueFlows = flowNames.stream().distinct().collect(Collectors.toList());
 
-        log.info("Fetching Message Processing Logs for {} unique flows...", uniqueFlows.size());
+        log.info("Fetching Message Processing Logs (last 90 days) for {} unique flows...", uniqueFlows.size());
         String baseEndpoint = config.get("cpi.api.messageProcessingLogs", "/api/v1/MessageProcessingLogs");
         List<MessageProcessingLog> allLogs = new ArrayList<>();
 
+        // Filter to last 90 days (Cloud Foundry retention period)
+        String since = Instant.now().minus(90, ChronoUnit.DAYS).truncatedTo(ChronoUnit.SECONDS)
+                .toString().replace("Z", "");  // OData datetime format: yyyy-MM-ddTHH:mm:ss
+
         for (int i = 0; i < uniqueFlows.size(); i++) {
             String name = uniqueFlows.get(i);
-            String filter = "IntegrationFlowName eq '" + name.replace("'", "''") + "'";
+            String filter = "IntegrationFlowName eq '" + name.replace("'", "''")
+                    + "' and LogEnd gt datetime'" + since + "'";
             String encodedFilter = URLEncoder.encode(filter, StandardCharsets.UTF_8);
             String endpoint = baseEndpoint + "?$filter=" + encodedFilter + "&$top=20";
             log.info("Fetching MPL {}/{}: {}", i + 1, uniqueFlows.size(), name);
@@ -326,7 +333,7 @@ public class CpiApiService {
         if (config.getBoolean("extract.message.logs", false)) {
             try {
                 List<String> flowNames = result.getAllFlows().stream()
-                        .map(IntegrationFlow::getName)
+                        .map(IntegrationFlow::getId)
                         .filter(n -> n != null && !n.isBlank())
                         .distinct()
                         .collect(Collectors.toList());

@@ -2,6 +2,7 @@ package com.sakiv.cpi.extractor.export;
 
 import com.sakiv.cpi.extractor.model.*;
 import com.sakiv.cpi.extractor.service.CpiHttpClient;
+import com.sakiv.cpi.extractor.util.DateFilterUtil;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVPrinter;
 import org.slf4j.Logger;
@@ -51,9 +52,13 @@ public class CsvExporter {
             exportRuntime(result, outputPath.resolve(baseName + "_runtime.csv"));
         }
 
-        // Export iFlow usage (aggregated MPL)
-        if (result.getMessageProcessingLogs() != null && !result.getMessageProcessingLogs().isEmpty()) {
+        // Export iFlow usage (all flows with MPL aggregation)
+        if (!result.getAllFlows().isEmpty()) {
             exportIFlowUsage(result, outputPath.resolve(baseName + "_iflow_usage.csv"));
+        }
+
+        // Export raw message processing logs
+        if (result.getMessageProcessingLogs() != null && !result.getMessageProcessingLogs().isEmpty()) {
             exportMessageLogs(result, outputPath.resolve(baseName + "_message_logs.csv"));
         }
 
@@ -77,8 +82,8 @@ public class CsvExporter {
             for (IntegrationPackage pkg : result.getPackages()) {
                 printer.printRecord(
                         pkg.getId(), pkg.getName(), pkg.getDescription(), pkg.getVersion(),
-                        pkg.getVendor(), pkg.getMode(), pkg.getCreatedBy(), pkg.getCreationDate(),
-                        pkg.getModifiedBy(), pkg.getModifiedDate(), pkg.getProducts(),
+                        pkg.getVendor(), pkg.getMode(), pkg.getCreatedBy(), fmt(pkg.getCreationDate()),
+                        pkg.getModifiedBy(), fmt(pkg.getModifiedDate()), pkg.getProducts(),
                         pkg.getKeywords());
             }
         }
@@ -97,8 +102,8 @@ public class CsvExporter {
                 printer.printRecord(
                         flow.getId(), flow.getName(), flow.getDescription(), flow.getPackageId(),
                         flow.getVersion(), flow.getSender(), flow.getReceiver(),
-                        flow.getCreatedBy(), flow.getCreatedAt(), flow.getModifiedBy(),
-                        flow.getModifiedAt(), flow.getRuntimeStatus(), flow.getDeployedVersion(),
+                        flow.getCreatedBy(), fmt(flow.getCreatedAt()), flow.getModifiedBy(),
+                        fmt(flow.getModifiedAt()), flow.getRuntimeStatus(), flow.getDeployedVersion(),
                         flow.getDeployedBy(), flow.getRuntimeError());
             }
         }
@@ -114,8 +119,8 @@ public class CsvExporter {
             for (ValueMapping vm : result.getAllValueMappings()) {
                 printer.printRecord(
                         vm.getId(), vm.getName(), vm.getDescription(), vm.getPackageId(),
-                        vm.getVersion(), vm.getCreatedBy(), vm.getCreatedAt(),
-                        vm.getModifiedBy(), vm.getModifiedAt());
+                        vm.getVersion(), vm.getCreatedBy(), fmt(vm.getCreatedAt()),
+                        vm.getModifiedBy(), fmt(vm.getModifiedAt()));
             }
         }
     }
@@ -151,41 +156,64 @@ public class CsvExporter {
     }
 
     private void exportIFlowUsage(ExtractionResult result, Path filePath) throws IOException {
-        // Aggregate MPL entries by flow name
-        java.util.Map<String, java.util.List<MessageProcessingLog>> byFlow = new java.util.LinkedHashMap<>();
-        for (MessageProcessingLog mpl : result.getMessageProcessingLogs()) {
-            String name = mpl.getIntegrationFlowName();
-            if (name == null || name.isBlank()) continue;
-            byFlow.computeIfAbsent(name, k -> new java.util.ArrayList<>()).add(mpl);
+        // Build MPL lookup by flow name
+        java.util.Map<String, java.util.List<MessageProcessingLog>> mplByFlow = new java.util.LinkedHashMap<>();
+        if (result.getMessageProcessingLogs() != null) {
+            for (MessageProcessingLog mpl : result.getMessageProcessingLogs()) {
+                String name = mpl.getIntegrationFlowName();
+                if (name != null && !name.isBlank()) {
+                    mplByFlow.computeIfAbsent(name, k -> new java.util.ArrayList<>()).add(mpl);
+                }
+            }
+        }
+
+        // Build flow-to-package mapping
+        java.util.Map<String, String> flowToPackage = new java.util.LinkedHashMap<>();
+        for (IntegrationPackage pkg : result.getPackages()) {
+            for (IntegrationFlow f : pkg.getIntegrationFlows()) {
+                String flowName = f.getName() != null ? f.getName() : f.getId();
+                if (flowName != null) {
+                    flowToPackage.put(flowName, pkg.getName() != null ? pkg.getName() : pkg.getId());
+                }
+            }
         }
 
         try (CSVPrinter printer = new CSVPrinter(new FileWriter(filePath.toFile()),
                 CSVFormat.DEFAULT.builder()
-                        .setHeader("iFlow Name", "Total", "Completed", "Failed", "Retry",
+                        .setHeader("Package", "iFlow Name", "Total", "Completed", "Failed", "Retry",
                                 "Escalated", "Last Execution", "Last Status")
                         .build())) {
-            for (var entry : byFlow.entrySet()) {
-                java.util.List<MessageProcessingLog> logs = entry.getValue();
-                int total = logs.size();
-                int completed = 0, failed = 0, retry = 0, escalated = 0;
-                String lastExec = "";
-                String lastStatus = "";
-                for (MessageProcessingLog m : logs) {
-                    String s = m.getStatus() != null ? m.getStatus().toUpperCase() : "";
-                    switch (s) {
-                        case "COMPLETED" -> completed++;
-                        case "FAILED" -> failed++;
-                        case "RETRY" -> retry++;
-                        case "ESCALATED" -> escalated++;
+            for (IntegrationFlow flow : result.getAllFlows()) {
+                String flowName = flow.getName() != null ? flow.getName() : flow.getId();
+                String flowId = flow.getId() != null ? flow.getId() : flowName;
+                if (flowName == null) continue;
+                String pkgName = flowToPackage.getOrDefault(flowName, "");
+
+                java.util.List<MessageProcessingLog> logs = mplByFlow.get(flowId);
+                if (logs == null || logs.isEmpty()) {
+                    printer.printRecord(pkgName, flowName, 0, 0, 0, 0, 0, "", "Not Used");
+                } else {
+                    int total = logs.size();
+                    int completed = 0, failed = 0, retry = 0, escalated = 0;
+                    String lastExec = "";
+                    String lastStatus = "";
+                    for (MessageProcessingLog m : logs) {
+                        String s = m.getStatus() != null ? m.getStatus().toUpperCase() : "";
+                        switch (s) {
+                            case "COMPLETED" -> completed++;
+                            case "FAILED" -> failed++;
+                            case "RETRY" -> retry++;
+                            case "ESCALATED" -> escalated++;
+                        }
+                        String logEnd = m.getLogEnd() != null ? m.getLogEnd() : "";
+                        if (logEnd.compareTo(lastExec) > 0) {
+                            lastExec = logEnd;
+                            lastStatus = m.getStatus() != null ? m.getStatus() : "";
+                        }
                     }
-                    String logEnd = m.getLogEnd() != null ? m.getLogEnd() : "";
-                    if (logEnd.compareTo(lastExec) > 0) {
-                        lastExec = logEnd;
-                        lastStatus = m.getStatus() != null ? m.getStatus() : "";
-                    }
+                    printer.printRecord(pkgName, flowName, total, completed, failed, retry,
+                            escalated, fmt(lastExec), lastStatus);
                 }
-                printer.printRecord(entry.getKey(), total, completed, failed, retry,
-                        escalated, lastExec, lastStatus);
             }
         }
     }
@@ -200,10 +228,14 @@ public class CsvExporter {
             for (MessageProcessingLog mpl : result.getMessageProcessingLogs()) {
                 printer.printRecord(
                         mpl.getMessageGuid(), mpl.getIntegrationFlowName(), mpl.getStatus(),
-                        mpl.getLogStart(), mpl.getLogEnd(), mpl.getSender(), mpl.getReceiver(),
+                        fmt(mpl.getLogStart()), fmt(mpl.getLogEnd()), mpl.getSender(), mpl.getReceiver(),
                         mpl.getApplicationMessageId(), mpl.getCorrelationId(), mpl.getLogLevel());
             }
         }
+    }
+
+    private String fmt(String cpiDate) {
+        return DateFilterUtil.formatCpiDate(cpiDate);
     }
 
     // @author Vikas Singh | Created: 2025-12-07
@@ -216,7 +248,7 @@ public class CsvExporter {
             for (RuntimeArtifact rt : result.getRuntimeArtifacts()) {
                 printer.printRecord(
                         rt.getId(), rt.getName(), rt.getType(), rt.getVersion(),
-                        rt.getStatus(), rt.getDeployedBy(), rt.getDeployedOn(),
+                        rt.getStatus(), rt.getDeployedBy(), fmt(rt.getDeployedOn()),
                         rt.getErrorInformation());
             }
         }
