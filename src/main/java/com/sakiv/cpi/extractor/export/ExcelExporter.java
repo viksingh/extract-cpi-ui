@@ -10,6 +10,8 @@ import org.slf4j.LoggerFactory;
 
 import java.io.FileOutputStream;
 
+import com.sakiv.cpi.extractor.service.CpiHttpClient;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -73,6 +75,21 @@ public class ExcelExporter {
                 createScriptsSheet(workbook, headerStyle, bundledFlows);
             }
 
+            // Sheet: iFlow Usage (aggregated MPL)
+            if (result.getMessageProcessingLogs() != null && !result.getMessageProcessingLogs().isEmpty()) {
+                createIFlowUsageSheet(workbook, headerStyle, result);
+            }
+
+            // Sheet: Message Processing Logs (raw)
+            if (result.getMessageProcessingLogs() != null && !result.getMessageProcessingLogs().isEmpty()) {
+                createMessageLogsSheet(workbook, headerStyle, result.getMessageProcessingLogs());
+            }
+
+            // Sheet: API Calls
+            if (!result.getApiCallLog().isEmpty()) {
+                createApiCallsSheet(workbook, headerStyle, result.getApiCallLog());
+            }
+
             try (FileOutputStream fos = new FileOutputStream(filePath.toFile())) {
                 workbook.write(fos);
             }
@@ -102,6 +119,8 @@ public class ExcelExporter {
         addSummaryRow(sheet, rowNum++, "Integration Flows", String.valueOf(result.getAllFlows().size()));
         addSummaryRow(sheet, rowNum++, "Value Mappings", String.valueOf(result.getAllValueMappings().size()));
         addSummaryRow(sheet, rowNum++, "Runtime Artifacts", String.valueOf(result.getRuntimeArtifacts().size()));
+        addSummaryRow(sheet, rowNum++, "Message Processing Logs",
+                String.valueOf(result.getMessageProcessingLogs() != null ? result.getMessageProcessingLogs().size() : 0));
 
         long started = result.getRuntimeArtifacts().stream()
                 .filter(r -> "STARTED".equalsIgnoreCase(r.getStatus())).count();
@@ -407,6 +426,125 @@ public class ExcelExporter {
         }
         sheet.setColumnWidth(headers.length - 1, 20000); // snippet column
 
+        if (rowNum > 1) {
+            sheet.setAutoFilter(new CellRangeAddress(0, 0, 0, headers.length - 1));
+        }
+    }
+
+    private void createIFlowUsageSheet(Workbook wb, CellStyle headerStyle, ExtractionResult result) {
+        Sheet sheet = wb.createSheet("iFlow Usage");
+        String[] headers = {
+                "iFlow Name", "Total", "Completed", "Failed", "Retry", "Escalated",
+                "Last Execution", "Last Status"
+        };
+        createHeaderRow(sheet, headerStyle, headers);
+
+        // Aggregate MPL entries by flow name
+        java.util.Map<String, java.util.List<MessageProcessingLog>> byFlow = new java.util.LinkedHashMap<>();
+        for (MessageProcessingLog mpl : result.getMessageProcessingLogs()) {
+            String name = mpl.getIntegrationFlowName();
+            if (name == null || name.isBlank()) continue;
+            byFlow.computeIfAbsent(name, k -> new java.util.ArrayList<>()).add(mpl);
+        }
+
+        CellStyle errorStyle = wb.createCellStyle();
+        Font errorFont = wb.createFont();
+        errorFont.setColor(IndexedColors.RED.getIndex());
+        errorFont.setBold(true);
+        errorStyle.setFont(errorFont);
+
+        int rowNum = 1;
+        for (var entry : byFlow.entrySet()) {
+            java.util.List<MessageProcessingLog> logs = entry.getValue();
+            int total = logs.size();
+            int completed = 0, failed = 0, retry = 0, escalated = 0;
+            String lastExec = "";
+            String lastStatus = "";
+            for (MessageProcessingLog m : logs) {
+                String s = m.getStatus() != null ? m.getStatus().toUpperCase() : "";
+                switch (s) {
+                    case "COMPLETED" -> completed++;
+                    case "FAILED" -> failed++;
+                    case "RETRY" -> retry++;
+                    case "ESCALATED" -> escalated++;
+                }
+                String logEnd = m.getLogEnd() != null ? m.getLogEnd() : "";
+                if (logEnd.compareTo(lastExec) > 0) {
+                    lastExec = logEnd;
+                    lastStatus = m.getStatus() != null ? m.getStatus() : "";
+                }
+            }
+
+            Row row = sheet.createRow(rowNum++);
+            int col = 0;
+            row.createCell(col++).setCellValue(entry.getKey());
+            row.createCell(col++).setCellValue(total);
+            row.createCell(col++).setCellValue(completed);
+            Cell failedCell = row.createCell(col++);
+            failedCell.setCellValue(failed);
+            if (failed > 0) failedCell.setCellStyle(errorStyle);
+            row.createCell(col++).setCellValue(retry);
+            row.createCell(col++).setCellValue(escalated);
+            row.createCell(col++).setCellValue(formatCpiDate(lastExec));
+            row.createCell(col++).setCellValue(nullSafe(lastStatus));
+        }
+
+        autoSizeColumns(sheet, headers.length);
+        if (rowNum > 1) {
+            sheet.setAutoFilter(new CellRangeAddress(0, 0, 0, headers.length - 1));
+        }
+    }
+
+    private void createMessageLogsSheet(Workbook wb, CellStyle headerStyle,
+                                         java.util.List<MessageProcessingLog> logs) {
+        Sheet sheet = wb.createSheet("Message Processing Logs");
+        String[] headers = {
+                "Message GUID", "iFlow Name", "Status", "Log Start", "Log End",
+                "Sender", "Receiver", "Application Message ID", "Correlation ID", "Log Level"
+        };
+        createHeaderRow(sheet, headerStyle, headers);
+
+        int rowNum = 1;
+        for (MessageProcessingLog mpl : logs) {
+            Row row = sheet.createRow(rowNum++);
+            int col = 0;
+            row.createCell(col++).setCellValue(nullSafe(mpl.getMessageGuid()));
+            row.createCell(col++).setCellValue(nullSafe(mpl.getIntegrationFlowName()));
+            row.createCell(col++).setCellValue(nullSafe(mpl.getStatus()));
+            row.createCell(col++).setCellValue(formatCpiDate(mpl.getLogStart()));
+            row.createCell(col++).setCellValue(formatCpiDate(mpl.getLogEnd()));
+            row.createCell(col++).setCellValue(nullSafe(mpl.getSender()));
+            row.createCell(col++).setCellValue(nullSafe(mpl.getReceiver()));
+            row.createCell(col++).setCellValue(nullSafe(mpl.getApplicationMessageId()));
+            row.createCell(col++).setCellValue(nullSafe(mpl.getCorrelationId()));
+            row.createCell(col++).setCellValue(nullSafe(mpl.getLogLevel()));
+        }
+
+        autoSizeColumns(sheet, headers.length);
+        if (rowNum > 1) {
+            sheet.setAutoFilter(new CellRangeAddress(0, 0, 0, headers.length - 1));
+        }
+    }
+
+    private void createApiCallsSheet(Workbook wb, CellStyle headerStyle,
+                                      List<CpiHttpClient.ApiCallRecord> apiCalls) {
+        Sheet sheet = wb.createSheet("API Calls");
+        String[] headers = {"#", "Method", "URL / Path", "Status Code", "Duration (ms)"};
+        createHeaderRow(sheet, headerStyle, headers);
+
+        int rowNum = 1;
+        for (CpiHttpClient.ApiCallRecord call : apiCalls) {
+            Row row = sheet.createRow(rowNum);
+            int col = 0;
+            row.createCell(col++).setCellValue(rowNum);
+            row.createCell(col++).setCellValue(call.method());
+            row.createCell(col++).setCellValue(nullSafe(call.path()));
+            row.createCell(col++).setCellValue(call.statusCode());
+            row.createCell(col++).setCellValue(call.durationMs());
+            rowNum++;
+        }
+
+        autoSizeColumns(sheet, headers.length);
         if (rowNum > 1) {
             sheet.setAutoFilter(new CellRangeAddress(0, 0, 0, headers.length - 1));
         }

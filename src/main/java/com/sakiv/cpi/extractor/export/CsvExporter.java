@@ -1,6 +1,7 @@
 package com.sakiv.cpi.extractor.export;
 
 import com.sakiv.cpi.extractor.model.*;
+import com.sakiv.cpi.extractor.service.CpiHttpClient;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVPrinter;
 import org.slf4j.Logger;
@@ -48,6 +49,17 @@ public class CsvExporter {
         // Export runtime
         if (!result.getRuntimeArtifacts().isEmpty()) {
             exportRuntime(result, outputPath.resolve(baseName + "_runtime.csv"));
+        }
+
+        // Export iFlow usage (aggregated MPL)
+        if (result.getMessageProcessingLogs() != null && !result.getMessageProcessingLogs().isEmpty()) {
+            exportIFlowUsage(result, outputPath.resolve(baseName + "_iflow_usage.csv"));
+            exportMessageLogs(result, outputPath.resolve(baseName + "_message_logs.csv"));
+        }
+
+        // Export API calls
+        if (!result.getApiCallLog().isEmpty()) {
+            exportApiCalls(result, outputPath.resolve(baseName + "_apicalls.csv"));
         }
 
         log.info("CSV files exported to: {}", outputPath.toAbsolutePath());
@@ -121,6 +133,75 @@ public class CsvExporter {
                             flow.getId(), flow.getName(), cfg.getParameterKey(),
                             cfg.getParameterValue(), cfg.getDataType());
                 }
+            }
+        }
+    }
+
+    private void exportApiCalls(ExtractionResult result, Path filePath) throws IOException {
+        try (CSVPrinter printer = new CSVPrinter(new FileWriter(filePath.toFile()),
+                CSVFormat.DEFAULT.builder()
+                        .setHeader("#", "Method", "URL / Path", "Status Code", "Duration (ms)")
+                        .build())) {
+            int seq = 1;
+            for (CpiHttpClient.ApiCallRecord call : result.getApiCallLog()) {
+                printer.printRecord(seq++, call.method(), call.path(),
+                        call.statusCode(), call.durationMs());
+            }
+        }
+    }
+
+    private void exportIFlowUsage(ExtractionResult result, Path filePath) throws IOException {
+        // Aggregate MPL entries by flow name
+        java.util.Map<String, java.util.List<MessageProcessingLog>> byFlow = new java.util.LinkedHashMap<>();
+        for (MessageProcessingLog mpl : result.getMessageProcessingLogs()) {
+            String name = mpl.getIntegrationFlowName();
+            if (name == null || name.isBlank()) continue;
+            byFlow.computeIfAbsent(name, k -> new java.util.ArrayList<>()).add(mpl);
+        }
+
+        try (CSVPrinter printer = new CSVPrinter(new FileWriter(filePath.toFile()),
+                CSVFormat.DEFAULT.builder()
+                        .setHeader("iFlow Name", "Total", "Completed", "Failed", "Retry",
+                                "Escalated", "Last Execution", "Last Status")
+                        .build())) {
+            for (var entry : byFlow.entrySet()) {
+                java.util.List<MessageProcessingLog> logs = entry.getValue();
+                int total = logs.size();
+                int completed = 0, failed = 0, retry = 0, escalated = 0;
+                String lastExec = "";
+                String lastStatus = "";
+                for (MessageProcessingLog m : logs) {
+                    String s = m.getStatus() != null ? m.getStatus().toUpperCase() : "";
+                    switch (s) {
+                        case "COMPLETED" -> completed++;
+                        case "FAILED" -> failed++;
+                        case "RETRY" -> retry++;
+                        case "ESCALATED" -> escalated++;
+                    }
+                    String logEnd = m.getLogEnd() != null ? m.getLogEnd() : "";
+                    if (logEnd.compareTo(lastExec) > 0) {
+                        lastExec = logEnd;
+                        lastStatus = m.getStatus() != null ? m.getStatus() : "";
+                    }
+                }
+                printer.printRecord(entry.getKey(), total, completed, failed, retry,
+                        escalated, lastExec, lastStatus);
+            }
+        }
+    }
+
+    private void exportMessageLogs(ExtractionResult result, Path filePath) throws IOException {
+        try (CSVPrinter printer = new CSVPrinter(new FileWriter(filePath.toFile()),
+                CSVFormat.DEFAULT.builder()
+                        .setHeader("Message GUID", "iFlow Name", "Status", "Log Start", "Log End",
+                                "Sender", "Receiver", "Application Message ID",
+                                "Correlation ID", "Log Level")
+                        .build())) {
+            for (MessageProcessingLog mpl : result.getMessageProcessingLogs()) {
+                printer.printRecord(
+                        mpl.getMessageGuid(), mpl.getIntegrationFlowName(), mpl.getStatus(),
+                        mpl.getLogStart(), mpl.getLogEnd(), mpl.getSender(), mpl.getReceiver(),
+                        mpl.getApplicationMessageId(), mpl.getCorrelationId(), mpl.getLogLevel());
             }
         }
     }

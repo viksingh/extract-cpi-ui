@@ -176,38 +176,36 @@ public class CpiApiService {
     }
 
     /**
-     * Fetch Message Processing Logs filtered by specific iFlow names.
-     * Batches the $filter query to avoid URL length limits (~10 flows per batch).
+     * Fetch Message Processing Logs for each unique iFlow name.
+     * Each iFlow is queried exactly once to avoid duplicate API calls.
      */
     public List<MessageProcessingLog> getMessageProcessingLogsForFlows(List<String> flowNames) throws IOException {
         if (flowNames == null || flowNames.isEmpty()) {
             return getMessageProcessingLogs();
         }
 
-        log.info("Fetching Message Processing Logs for {} flows...", flowNames.size());
+        // Deduplicate flow names to ensure each iFlow is called only once
+        List<String> uniqueFlows = flowNames.stream().distinct().collect(Collectors.toList());
+
+        log.info("Fetching Message Processing Logs for {} unique flows...", uniqueFlows.size());
         String baseEndpoint = config.get("cpi.api.messageProcessingLogs", "/api/v1/MessageProcessingLogs");
         List<MessageProcessingLog> allLogs = new ArrayList<>();
 
-        // Batch into groups of 10 to keep URL length manageable
-        int batchSize = 10;
-        for (int i = 0; i < flowNames.size(); i += batchSize) {
-            List<String> batch = flowNames.subList(i, Math.min(i + batchSize, flowNames.size()));
-            String filter = batch.stream()
-                    .map(name -> "IntegrationFlowName eq '" + name.replace("'", "''") + "'")
-                    .collect(Collectors.joining(" or "));
+        for (int i = 0; i < uniqueFlows.size(); i++) {
+            String name = uniqueFlows.get(i);
+            String filter = "IntegrationFlowName eq '" + name.replace("'", "''") + "'";
             String encodedFilter = URLEncoder.encode(filter, StandardCharsets.UTF_8);
-            String endpoint = baseEndpoint + "?$filter=" + encodedFilter;
-            log.info("Fetching MPL batch {}/{} ({} flows)", (i / batchSize) + 1,
-                    (flowNames.size() + batchSize - 1) / batchSize, batch.size());
+            String endpoint = baseEndpoint + "?$filter=" + encodedFilter + "&$top=20";
+            log.info("Fetching MPL {}/{}: {}", i + 1, uniqueFlows.size(), name);
             try {
-                List<MessageProcessingLog> batchLogs = fetchAll(endpoint, MessageProcessingLog.class);
-                allLogs.addAll(batchLogs);
+                List<MessageProcessingLog> logs = fetchAll(endpoint, MessageProcessingLog.class);
+                allLogs.addAll(logs);
             } catch (IOException e) {
-                log.warn("Failed to fetch MPL for batch starting at {}: {}", i, e.getMessage());
+                log.warn("Failed to fetch MPL for flow '{}': {}", name, e.getMessage());
             }
         }
 
-        log.info("Found {} Message Processing Log entries for selected flows", allLogs.size());
+        log.info("Found {} Message Processing Log entries for {} flows", allLogs.size(), uniqueFlows.size());
         return allLogs;
     }
 

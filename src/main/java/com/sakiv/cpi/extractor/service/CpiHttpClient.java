@@ -156,9 +156,13 @@ public class CpiHttpClient implements Closeable {
 
         tokenRequest.setEntity(new StringEntity("grant_type=client_credentials"));
 
+        long startTime = System.currentTimeMillis();
         try (CloseableHttpResponse response = httpClient.execute(tokenRequest)) {
             int statusCode = response.getStatusLine().getStatusCode();
+            long durationMs = System.currentTimeMillis() - startTime;
             String body = EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
+
+            apiCallLog.add(new ApiCallRecord("POST", config.getOAuthTokenUrl(), statusCode, durationMs));
 
             if (statusCode != 200) {
                 throw new IOException("OAuth2 token request failed with HTTP " + statusCode + ": " + body);
@@ -244,11 +248,17 @@ public class CpiHttpClient implements Closeable {
      */
     // @author Vikas Singh | Created: 2025-11-30
     public String fetchCsrfToken() throws IOException {
-        HttpGet request = new HttpGet(config.getBaseUrl() + "/api/v1/");
+        String csrfUrl = config.getBaseUrl() + "/api/v1/";
+        HttpGet request = new HttpGet(csrfUrl);
         request.setHeader(HttpHeaders.AUTHORIZATION, getAuthHeader());
         request.setHeader("X-CSRF-Token", "Fetch");
 
+        long startTime = System.currentTimeMillis();
         try (CloseableHttpResponse response = httpClient.execute(request)) {
+            int statusCode = response.getStatusLine().getStatusCode();
+            long durationMs = System.currentTimeMillis() - startTime;
+            apiCallLog.add(new ApiCallRecord("GET", csrfUrl, statusCode, durationMs));
+
             return response.getFirstHeader("X-CSRF-Token") != null
                     ? response.getFirstHeader("X-CSRF-Token").getValue()
                     : null;
