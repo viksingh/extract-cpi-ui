@@ -190,6 +190,9 @@ public class CsvExporter {
                 String pkgName = flowToPackage.getOrDefault(flowName, "");
 
                 java.util.List<MessageProcessingLog> logs = mplByFlow.get(flowId);
+                if ((logs == null || logs.isEmpty()) && !flowId.equals(flowName)) {
+                    logs = mplByFlow.get(flowName);
+                }
                 if (logs == null || logs.isEmpty()) {
                     printer.printRecord(pkgName, flowName, 0, 0, 0, 0, 0, "", "Not Used");
                 } else {

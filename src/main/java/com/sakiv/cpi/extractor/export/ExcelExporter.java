@@ -482,6 +482,9 @@ public class ExcelExporter {
             String pkgName = flowToPackage.getOrDefault(flowName, "");
 
             java.util.List<MessageProcessingLog> logs = mplByFlow.get(flowId);
+            if ((logs == null || logs.isEmpty()) && !flowId.equals(flowName)) {
+                logs = mplByFlow.get(flowName);
+            }
             Row row = sheet.createRow(rowNum++);
             int col = 0;
             row.createCell(col++).setCellValue(nullSafe(pkgName));

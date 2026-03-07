@@ -73,6 +73,11 @@ public class MainController {
     @FXML private CheckBox extractConfigurationsCb;
     @FXML private CheckBox extractRuntimeCb;
     @FXML private CheckBox extractIflowBundlesCb;
+    @FXML private CheckBox extractMessageLogsCb;
+
+    // Deep extraction toggle
+    @FXML private CheckBox deepExtractionCb;
+    @FXML private VBox deepExtractionControls;
 
     // Date filter
     @FXML private CheckBox dateFilterEnabledCb;
@@ -85,9 +90,6 @@ public class MainController {
     @FXML private CheckBox selectAllPackagesCb;
     @FXML private TextField packageSearchField;
     private boolean updatingPackageCheckboxes; // guard against recursive listener calls
-
-    // Message Processing Logs
-    @FXML private CheckBox extractMessageLogsCb;
 
     // Export settings
     @FXML private ComboBox<String> exportFormatCombo;
@@ -207,6 +209,22 @@ public class MainController {
         basicPasswordLabel.setManaged(!isOAuth);
         basicPasswordField.setVisible(!isOAuth);
         basicPasswordField.setManaged(!isOAuth);
+    }
+
+    @FXML
+    private void onDeepExtractionToggled() {
+        boolean enabled = deepExtractionCb.isSelected();
+        deepExtractionControls.setVisible(enabled);
+        deepExtractionControls.setManaged(enabled);
+        if (!enabled) {
+            extractValueMappingsCb.setSelected(false);
+            extractConfigurationsCb.setSelected(false);
+            extractIflowBundlesCb.setSelected(false);
+        } else {
+            extractValueMappingsCb.setSelected(true);
+            extractConfigurationsCb.setSelected(true);
+            extractIflowBundlesCb.setSelected(true);
+        }
     }
 
     // @author Vikas Singh | Created: 2026-02-07
@@ -398,14 +416,15 @@ public class MainController {
             }
             setFieldIfPresent(props, "export.filename.prefix", filenamePrefixField);
 
-            // Extraction options
-            extractPackagesCb.setSelected(getBool(props, "extract.packages", true));
-            extractFlowsCb.setSelected(getBool(props, "extract.flows", true));
-            extractValueMappingsCb.setSelected(getBool(props, "extract.valuemappings", true));
-            extractConfigurationsCb.setSelected(getBool(props, "extract.configurations", true));
-            extractRuntimeCb.setSelected(getBool(props, "extract.runtime.status", true));
-            extractIflowBundlesCb.setSelected(getBool(props, "extract.iflow.bundles", true));
-            extractMessageLogsCb.setSelected(getBool(props, "extract.message.logs", true));
+            // Extraction options — deep extraction toggle
+            boolean deep = getBool(props, "extract.deep", false);
+            deepExtractionCb.setSelected(deep);
+            onDeepExtractionToggled();
+            if (deep) {
+                extractValueMappingsCb.setSelected(getBool(props, "extract.valuemappings", true));
+                extractConfigurationsCb.setSelected(getBool(props, "extract.configurations", true));
+                extractIflowBundlesCb.setSelected(getBool(props, "extract.iflow.bundles", true));
+            }
 
             // Date filter
             dateFilterEnabledCb.setSelected(getBool(props, "filter.date.enabled", false));
@@ -914,7 +933,12 @@ public class MainController {
                 if (flowName == null) continue;
                 String pkgName = flowToPackage.getOrDefault(flowName, "");
 
+                // Try matching by Id first, then by Name — SAP CPI's IntegrationFlowName
+                // can store either depending on the tenant
                 List<MessageProcessingLog> logs = mplByFlow.get(flowId);
+                if ((logs == null || logs.isEmpty()) && !flowId.equals(flowName)) {
+                    logs = mplByFlow.get(flowName);
+                }
                 if (logs == null || logs.isEmpty()) {
                     usageRows.add(new IFlowUsageRow(pkgName, flowName, 0, 0, 0, 0, 0, "", "Not Used"));
                 } else {
@@ -1164,13 +1188,17 @@ public class MainController {
         props.setProperty("export.output.dir", outputDirField.getText().trim());
         props.setProperty("export.filename.prefix", filenamePrefixField.getText().trim());
 
-        props.setProperty("extract.packages", String.valueOf(extractPackagesCb.isSelected()));
-        props.setProperty("extract.flows", String.valueOf(extractFlowsCb.isSelected()));
+        // Core options (always on)
+        props.setProperty("extract.packages", "true");
+        props.setProperty("extract.flows", "true");
+        props.setProperty("extract.runtime.status", "true");
+        props.setProperty("extract.message.logs", "true");
+
+        // Deep extraction options
+        props.setProperty("extract.deep", String.valueOf(deepExtractionCb.isSelected()));
         props.setProperty("extract.valuemappings", String.valueOf(extractValueMappingsCb.isSelected()));
         props.setProperty("extract.configurations", String.valueOf(extractConfigurationsCb.isSelected()));
-        props.setProperty("extract.runtime.status", String.valueOf(extractRuntimeCb.isSelected()));
         props.setProperty("extract.iflow.bundles", String.valueOf(extractIflowBundlesCb.isSelected()));
-        props.setProperty("extract.message.logs", String.valueOf(extractMessageLogsCb.isSelected()));
 
         props.setProperty("filter.date.enabled", String.valueOf(dateFilterEnabledCb.isSelected()));
         LocalDate sinceDate = sinceDatePicker.getValue();

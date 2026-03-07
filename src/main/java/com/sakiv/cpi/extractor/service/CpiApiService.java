@@ -22,6 +22,7 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -330,13 +331,18 @@ public class CpiApiService {
         }
 
         // 5. Fetch message processing logs (filtered to extracted flows when available)
-        if (config.getBoolean("extract.message.logs", false)) {
+        if (config.getBoolean("extract.message.logs", true)) {
             try {
-                List<String> flowNames = result.getAllFlows().stream()
-                        .map(IntegrationFlow::getId)
-                        .filter(n -> n != null && !n.isBlank())
-                        .distinct()
-                        .collect(Collectors.toList());
+                // Collect both Id and Name for each flow — SAP CPI's IntegrationFlowName
+                // in MPL can store either the artifact Id or display Name depending on tenant
+                Set<String> flowIdentifiers = new LinkedHashSet<>();
+                for (IntegrationFlow flow : result.getAllFlows()) {
+                    if (flow.getId() != null && !flow.getId().isBlank())
+                        flowIdentifiers.add(flow.getId());
+                    if (flow.getName() != null && !flow.getName().isBlank())
+                        flowIdentifiers.add(flow.getName());
+                }
+                List<String> flowNames = new ArrayList<>(flowIdentifiers);
                 List<MessageProcessingLog> mplLogs = flowNames.isEmpty()
                         ? getMessageProcessingLogs()
                         : getMessageProcessingLogsForFlows(flowNames);

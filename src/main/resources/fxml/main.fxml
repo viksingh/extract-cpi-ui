@@ -64,13 +64,18 @@
                     HBox.hgrow="ALWAYS">
             <VBox spacing="6">
                 <padding><Insets top="8" right="10" bottom="8" left="10"/></padding>
-                <CheckBox fx:id="extractPackagesCb" text="Packages" selected="true"/>
-                <CheckBox fx:id="extractFlowsCb" text="Integration Flows" selected="true"/>
-                <CheckBox fx:id="extractValueMappingsCb" text="Value Mappings" selected="true"/>
-                <CheckBox fx:id="extractConfigurationsCb" text="Configurations" selected="true"/>
-                <CheckBox fx:id="extractRuntimeCb" text="Runtime Status" selected="true"/>
-                <CheckBox fx:id="extractIflowBundlesCb" text="iFlow Bundles (ZIP/XML)" selected="true"/>
-                <CheckBox fx:id="extractMessageLogsCb" text="Message Processing Logs" selected="true"/>
+                <CheckBox fx:id="extractPackagesCb" text="Packages" selected="true" disable="true"/>
+                <CheckBox fx:id="extractFlowsCb" text="Integration Flows" selected="true" disable="true"/>
+                <CheckBox fx:id="extractRuntimeCb" text="Runtime Status" selected="true" disable="true"/>
+                <CheckBox fx:id="extractMessageLogsCb" text="Message Processing Logs (Usage)" selected="true" disable="true"/>
+                <Separator/>
+                <CheckBox fx:id="deepExtractionCb" text="Enable Deep Extraction" selected="false" onAction="#onDeepExtractionToggled"/>
+                <VBox fx:id="deepExtractionControls" spacing="6" visible="false" managed="false">
+                    <padding><Insets left="20"/></padding>
+                    <CheckBox fx:id="extractValueMappingsCb" text="Value Mappings" selected="true"/>
+                    <CheckBox fx:id="extractConfigurationsCb" text="Configurations" selected="true"/>
+                    <CheckBox fx:id="extractIflowBundlesCb" text="iFlow Bundles (ZIP/XML)" selected="true"/>
+                </VBox>
                 <Separator/>
                 <CheckBox fx:id="dateFilterEnabledCb" text="Enable Date Filter" onAction="#onDateFilterToggled"/>
                 <HBox fx:id="dateFilterControls" spacing="8" alignment="CENTER_LEFT"
