@@ -392,7 +392,10 @@ public class MainController {
                 default -> exportFormatCombo.setValue("Excel (.xlsx)");
             }
 
-            setFieldIfPresent(props, "export.output.dir", outputDirField);
+            String loadedDir = props.getProperty("export.output.dir");
+            if (loadedDir != null && !loadedDir.isBlank() && !"./output".equals(loadedDir.trim())) {
+                outputDirField.setText(loadedDir);
+            }
             setFieldIfPresent(props, "export.filename.prefix", filenamePrefixField);
 
             // Extraction options
