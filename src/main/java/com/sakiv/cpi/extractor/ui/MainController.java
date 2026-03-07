@@ -72,7 +72,6 @@ public class MainController {
     @FXML private CheckBox extractValueMappingsCb;
     @FXML private CheckBox extractConfigurationsCb;
     @FXML private CheckBox extractRuntimeCb;
-    @FXML private CheckBox extractIflowBundlesCb;
     @FXML private CheckBox extractMessageLogsCb;
 
     // Deep extraction toggle
@@ -106,6 +105,8 @@ public class MainController {
     @FXML private TableView<RuntimeArtifact> runtimeTable;
     @FXML private TableView<AdapterRow> adaptersTable;
     @FXML private TableView<IFlowUsageRow> iflowUsageTable;
+    @FXML private TableView<EccEndpointRow> eccEndpointsTable;
+    @FXML private TableView<FlowChainRow> flowChainsTable;
     @FXML private TableView<ApiCallRow> apiCallsTable;
 
     // Package filter pane
@@ -148,6 +149,8 @@ public class MainController {
         initRuntimeTable();
         initAdaptersTable();
         initIflowUsageTable();
+        initEccEndpointsTable();
+        initFlowChainsTable();
         initApiCallsTable();
 
         // Re-apply filter automatically whenever filter settings change after data is loaded
@@ -219,11 +222,9 @@ public class MainController {
         if (!enabled) {
             extractValueMappingsCb.setSelected(false);
             extractConfigurationsCb.setSelected(false);
-            extractIflowBundlesCb.setSelected(false);
         } else {
             extractValueMappingsCb.setSelected(true);
             extractConfigurationsCb.setSelected(true);
-            extractIflowBundlesCb.setSelected(true);
         }
     }
 
@@ -423,7 +424,6 @@ public class MainController {
             if (deep) {
                 extractValueMappingsCb.setSelected(getBool(props, "extract.valuemappings", true));
                 extractConfigurationsCb.setSelected(getBool(props, "extract.configurations", true));
-                extractIflowBundlesCb.setSelected(getBool(props, "extract.iflow.bundles", true));
             }
 
             // Date filter
@@ -899,7 +899,30 @@ public class MainController {
         log.info("Adapters tab: {} rows from {} flows ({} bundle-parsed)",
                 adapterRows.size(), result.getAllFlows().size(),
                 result.getAllFlows().stream().filter(IntegrationFlow::isBundleParsed).count());
+        // Debug: log JMS/ProcessDirect adapter properties to help diagnose chain detection
+        for (IntegrationFlow flow : result.getAllFlows()) {
+            if (!flow.isBundleParsed() || flow.getIflowContent() == null) continue;
+            for (var adapter : flow.getIflowContent().getAdapters()) {
+                String type = adapter.getAdapterType() != null ? adapter.getAdapterType().toLowerCase() : "";
+                if (type.contains("jms") || type.contains("processdirect")) {
+                    log.info("Chain adapter: flow={}, type={}, dir={}, address={}, props={}",
+                            flow.getId(), adapter.getAdapterType(), adapter.getDirection(),
+                            adapter.getAddress(), adapter.getProperties());
+                }
+            }
+        }
         adaptersTable.setItems(FXCollections.observableArrayList(adapterRows));
+
+        // Build flow-to-package mapping (shared across usage, ECC, chains tabs)
+        Map<String, String> flowToPackage = new LinkedHashMap<>();
+        for (IntegrationPackage pkg : result.getPackages()) {
+            for (IntegrationFlow flow : pkg.getIntegrationFlows()) {
+                String flowName = flow.getName() != null ? flow.getName() : flow.getId();
+                if (flowName != null) {
+                    flowToPackage.put(flowName, pkg.getName() != null ? pkg.getName() : pkg.getId());
+                }
+            }
+        }
 
         // iFlow Usage tab — show all flows with MPL aggregation; mark unused flows
         List<IFlowUsageRow> usageRows = new ArrayList<>();
@@ -911,17 +934,6 @@ public class MainController {
                     String name = mpl.getIntegrationFlowName();
                     if (name != null && !name.isBlank()) {
                         mplByFlow.computeIfAbsent(name, k -> new ArrayList<>()).add(mpl);
-                    }
-                }
-            }
-
-            // Build flow-to-package mapping
-            Map<String, String> flowToPackage = new LinkedHashMap<>();
-            for (IntegrationPackage pkg : result.getPackages()) {
-                for (IntegrationFlow flow : pkg.getIntegrationFlows()) {
-                    String flowName = flow.getName() != null ? flow.getName() : flow.getId();
-                    if (flowName != null) {
-                        flowToPackage.put(flowName, pkg.getName() != null ? pkg.getName() : pkg.getId());
                     }
                 }
             }
@@ -966,6 +978,31 @@ public class MainController {
             }
         }
         iflowUsageTable.setItems(FXCollections.observableArrayList(usageRows));
+
+        // ECC Endpoints tab — flag adapters using ECC-specific protocols
+        List<EccEndpointRow> eccRows = new ArrayList<>();
+        for (IntegrationFlow flow : result.getAllFlows()) {
+            if (flow.isBundleParsed() && flow.getIflowContent() != null) {
+                String pkgName = flowToPackage.getOrDefault(
+                        flow.getName() != null ? flow.getName() : flow.getId(), "");
+                for (var adapter : flow.getIflowContent().getAdapters()) {
+                    String type = adapter.getAdapterType() != null ? adapter.getAdapterType() : "";
+                    String protocol = adapter.getTransportProtocol() != null ? adapter.getTransportProtocol() : "";
+                    String msgProtocol = adapter.getMessageProtocol() != null ? adapter.getMessageProtocol() : "";
+                    String category = classifyEndpoint(type, protocol, msgProtocol);
+                    String address = adapter.getAddress() != null ? adapter.getAddress() : "";
+                    eccRows.add(new EccEndpointRow(pkgName,
+                            flow.getName() != null ? flow.getName() : flow.getId(),
+                            adapter.getDirection(), type, protocol, msgProtocol,
+                            address, category));
+                }
+            }
+        }
+        eccEndpointsTable.setItems(FXCollections.observableArrayList(eccRows));
+
+        // Flow Chains tab — detect JMS and ProcessDirect linked flows
+        List<FlowChainRow> chainRows = buildFlowChains(result);
+        flowChainsTable.setItems(FXCollections.observableArrayList(chainRows));
 
         // API Calls tab
         List<ApiCallRow> apiCallRows = new ArrayList<>();
@@ -1128,6 +1165,66 @@ public class MainController {
     }
 
     @SuppressWarnings("unchecked")
+    private void initEccEndpointsTable() {
+        TableColumn<EccEndpointRow, String> pkgCol = new TableColumn<>("Package");
+        pkgCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().packageName()));
+
+        TableColumn<EccEndpointRow, String> flowCol = new TableColumn<>("iFlow");
+        flowCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().flowName()));
+        flowCol.setPrefWidth(200);
+
+        TableColumn<EccEndpointRow, String> dirCol = new TableColumn<>("Direction");
+        dirCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().direction()));
+
+        TableColumn<EccEndpointRow, String> typeCol = new TableColumn<>("Adapter Type");
+        typeCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().adapterType()));
+
+        TableColumn<EccEndpointRow, String> protoCol = new TableColumn<>("Transport");
+        protoCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().transportProtocol()));
+
+        TableColumn<EccEndpointRow, String> msgProtoCol = new TableColumn<>("Message Protocol");
+        msgProtoCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().messageProtocol()));
+
+        TableColumn<EccEndpointRow, String> addrCol = new TableColumn<>("Address");
+        addrCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().address()));
+        addrCol.setPrefWidth(250);
+
+        TableColumn<EccEndpointRow, String> catCol = new TableColumn<>("Category");
+        catCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().category()));
+        catCol.setPrefWidth(180);
+
+        eccEndpointsTable.getColumns().addAll(pkgCol, flowCol, dirCol, typeCol, protoCol, msgProtoCol, addrCol, catCol);
+        eccEndpointsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_SUBSEQUENT_COLUMNS);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void initFlowChainsTable() {
+        TableColumn<FlowChainRow, String> typeCol = new TableColumn<>("Chain Type");
+        typeCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().chainType()));
+
+        TableColumn<FlowChainRow, String> queueCol = new TableColumn<>("Queue / Address");
+        queueCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().queueOrAddress()));
+        queueCol.setPrefWidth(250);
+
+        TableColumn<FlowChainRow, String> senderFlowCol = new TableColumn<>("Sender iFlow");
+        senderFlowCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().senderFlow()));
+        senderFlowCol.setPrefWidth(200);
+
+        TableColumn<FlowChainRow, String> senderPkgCol = new TableColumn<>("Sender Package");
+        senderPkgCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().senderPackage()));
+
+        TableColumn<FlowChainRow, String> recFlowCol = new TableColumn<>("Receiver iFlow");
+        recFlowCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().receiverFlow()));
+        recFlowCol.setPrefWidth(200);
+
+        TableColumn<FlowChainRow, String> recPkgCol = new TableColumn<>("Receiver Package");
+        recPkgCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().receiverPackage()));
+
+        flowChainsTable.getColumns().addAll(typeCol, queueCol, senderFlowCol, senderPkgCol, recFlowCol, recPkgCol);
+        flowChainsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_SUBSEQUENT_COLUMNS);
+    }
+
+    @SuppressWarnings("unchecked")
     private void initApiCallsTable() {
         TableColumn<ApiCallRow, String> methodCol = new TableColumn<>("Method");
         methodCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().method()));
@@ -1198,7 +1295,6 @@ public class MainController {
         props.setProperty("extract.deep", String.valueOf(deepExtractionCb.isSelected()));
         props.setProperty("extract.valuemappings", String.valueOf(extractValueMappingsCb.isSelected()));
         props.setProperty("extract.configurations", String.valueOf(extractConfigurationsCb.isSelected()));
-        props.setProperty("extract.iflow.bundles", String.valueOf(extractIflowBundlesCb.isSelected()));
 
         props.setProperty("filter.date.enabled", String.valueOf(dateFilterEnabledCb.isSelected()));
         LocalDate sinceDate = sinceDatePicker.getValue();
@@ -1278,4 +1374,181 @@ public class MainController {
 
     public record IFlowUsageRow(String packageName, String flowName, int total, int completed, int failed,
                                 int retry, int escalated, String lastExecution, String lastStatus) {}
+
+    public record EccEndpointRow(String packageName, String flowName, String direction,
+                                  String adapterType, String transportProtocol, String messageProtocol,
+                                  String address, String category) {}
+
+    public record FlowChainRow(String chainType, String queueOrAddress,
+                                String senderFlow, String senderPackage,
+                                String receiverFlow, String receiverPackage) {}
+
+    // =========================================================================
+    // ECC Endpoint Classification
+    // =========================================================================
+
+    private static String classifyEndpoint(String adapterType, String transportProtocol, String messageProtocol) {
+        String type = adapterType.toLowerCase();
+        String proto = transportProtocol.toLowerCase();
+        String msgProto = messageProtocol.toLowerCase();
+
+        // ECC-specific
+        if (type.contains("idoc") || msgProto.contains("idoc")) return "ECC (IDoc)";
+        if (type.contains("rfc") || proto.contains("rfc")) return "ECC (RFC/BAPI)";
+        if (type.contains("xi") || type.contains("soap") && msgProto.contains("xi")) return "ECC (XI/SOAP)";
+        if (type.contains("as2")) return "Legacy (AS2)";
+
+        // S/4-compatible
+        if (type.contains("odata") || proto.contains("odata")) return "S/4 Compatible (OData)";
+        if (type.contains("http") || type.contains("rest")) return "S/4 Compatible (HTTP/REST)";
+        if (type.contains("soap")) return "Neutral (SOAP)";
+
+        // Middleware
+        if (type.contains("jms")) return "Middleware (JMS)";
+        if (type.contains("processdirect")) return "Internal (ProcessDirect)";
+        if (type.contains("sftp") || type.contains("ftp")) return "Neutral (SFTP/FTP)";
+        if (type.contains("mail") || type.contains("smtp") || type.contains("imap")) return "Neutral (Mail)";
+        if (type.contains("kafka")) return "Neutral (Kafka)";
+        if (type.contains("amqp")) return "Neutral (AMQP)";
+        if (type.contains("ariba")) return "Neutral (Ariba)";
+        if (type.contains("successfactors") || type.contains("sfsf")) return "Neutral (SuccessFactors)";
+        if (type.contains("elster")) return "Legacy (ELSTER)";
+
+        return "Other (" + adapterType + ")";
+    }
+
+    // =========================================================================
+    // Flow Chain Detection (JMS / ProcessDirect)
+    // =========================================================================
+
+    private List<FlowChainRow> buildFlowChains(ExtractionResult result) {
+        // Build flow-to-package mapping
+        Map<String, String> flowToPackage = new LinkedHashMap<>();
+        for (IntegrationPackage pkg : result.getPackages()) {
+            for (IntegrationFlow f : pkg.getIntegrationFlows()) {
+                String flowName = f.getName() != null ? f.getName() : f.getId();
+                flowToPackage.put(f.getId(), pkg.getName() != null ? pkg.getName() : pkg.getId());
+                if (f.getName() != null) flowToPackage.put(f.getName(), flowToPackage.get(f.getId()));
+            }
+        }
+
+        // Collect JMS/ProcessDirect producers and consumers
+        // Key = queue/address name, Value = list of (flowId, flowName, direction)
+        Map<String, List<String[]>> jmsProducers = new LinkedHashMap<>();
+        Map<String, List<String[]>> jmsConsumers = new LinkedHashMap<>();
+        Map<String, List<String[]>> pdProducers = new LinkedHashMap<>();
+        Map<String, List<String[]>> pdConsumers = new LinkedHashMap<>();
+
+        for (IntegrationFlow flow : result.getAllFlows()) {
+            if (!flow.isBundleParsed() || flow.getIflowContent() == null) continue;
+            String flowName = flow.getName() != null ? flow.getName() : flow.getId();
+
+            for (var adapter : flow.getIflowContent().getAdapters()) {
+                String type = adapter.getAdapterType() != null ? adapter.getAdapterType().toLowerCase() : "";
+                String address = resolveChainAddress(adapter);
+                String dir = adapter.getDirection() != null ? adapter.getDirection() : "";
+
+                if (address.isEmpty()) continue;
+
+                String[] info = { flow.getId(), flowName };
+                if (type.contains("jms")) {
+                    if ("Receiver".equalsIgnoreCase(dir)) {
+                        jmsProducers.computeIfAbsent(address, k -> new ArrayList<>()).add(info);
+                    } else if ("Sender".equalsIgnoreCase(dir)) {
+                        jmsConsumers.computeIfAbsent(address, k -> new ArrayList<>()).add(info);
+                    }
+                } else if (type.contains("processdirect")) {
+                    if ("Receiver".equalsIgnoreCase(dir)) {
+                        pdProducers.computeIfAbsent(address, k -> new ArrayList<>()).add(info);
+                    } else if ("Sender".equalsIgnoreCase(dir)) {
+                        pdConsumers.computeIfAbsent(address, k -> new ArrayList<>()).add(info);
+                    }
+                }
+            }
+        }
+
+        List<FlowChainRow> rows = new ArrayList<>();
+
+        // Match JMS chains: only show when both producer and consumer exist
+        for (var entry : jmsProducers.entrySet()) {
+            String queue = entry.getKey();
+            List<String[]> consumers = jmsConsumers.getOrDefault(queue, List.of());
+            if (consumers.isEmpty()) continue;
+            for (String[] prod : entry.getValue()) {
+                for (String[] cons : consumers) {
+                    rows.add(new FlowChainRow("JMS", queue,
+                            prod[1], flowToPackage.getOrDefault(prod[0], ""),
+                            cons[1], flowToPackage.getOrDefault(cons[0], "")));
+                }
+            }
+        }
+
+        // Match ProcessDirect chains: only show when both producer and consumer exist
+        for (var entry : pdProducers.entrySet()) {
+            String addr = entry.getKey();
+            List<String[]> consumers = pdConsumers.getOrDefault(addr, List.of());
+            if (consumers.isEmpty()) continue;
+            for (String[] prod : entry.getValue()) {
+                for (String[] cons : consumers) {
+                    rows.add(new FlowChainRow("ProcessDirect", addr,
+                            prod[1], flowToPackage.getOrDefault(prod[0], ""),
+                            cons[1], flowToPackage.getOrDefault(cons[0], "")));
+                }
+            }
+        }
+
+        log.info("Flow chains: {} links detected ({} JMS, {} ProcessDirect)",
+                rows.size(),
+                rows.stream().filter(r -> "JMS".equals(r.chainType())).count(),
+                rows.stream().filter(r -> "ProcessDirect".equals(r.chainType())).count());
+
+        return rows;
+    }
+
+    /**
+     * Resolve the queue name or endpoint address from adapter properties.
+     * JMS adapters store the queue in "Destination", "QueueName", or "jms.destination".
+     * ProcessDirect uses "Address". Falls back to the adapter's address field.
+     */
+    private static String resolveChainAddress(IFlowAdapter adapter) {
+        String type = adapter.getAdapterType() != null ? adapter.getAdapterType().toLowerCase() : "";
+        Map<String, String> props = adapter.getProperties();
+        String dir = adapter.getDirection() != null ? adapter.getDirection() : "";
+
+        if (type.contains("jms")) {
+            // SAP CPI uses QueueName_outbound (Receiver/producer) and QueueName_inbound (Sender/consumer)
+            for (String key : List.of(
+                    "Receiver".equalsIgnoreCase(dir) ? "QueueName_outbound" : "QueueName_inbound",
+                    "QueueName_outbound", "QueueName_inbound",
+                    "Destination", "QueueName", "destination", "queueName")) {
+                String val = props.get(key);
+                if (val != null && !val.isBlank()) return val;
+            }
+        }
+
+        if (type.contains("processdirect")) {
+            // SAP CPI uses lowercase "address" property
+            for (String key : List.of("address", "Address", "ProcessDirectAddress")) {
+                String val = props.get(key);
+                if (val != null && !val.isBlank()) return val;
+            }
+        }
+
+        // Fall back to the parsed address field
+        if (adapter.getAddress() != null && !adapter.getAddress().isBlank()) {
+            return adapter.getAddress();
+        }
+
+        // Last resort: scan all properties for anything that looks like a queue/address
+        for (var entry : props.entrySet()) {
+            String key = entry.getKey().toLowerCase();
+            if (key.contains("destination") || key.contains("queue") || key.contains("address")) {
+                if (entry.getValue() != null && !entry.getValue().isBlank()) {
+                    return entry.getValue();
+                }
+            }
+        }
+
+        return "";
+    }
 }

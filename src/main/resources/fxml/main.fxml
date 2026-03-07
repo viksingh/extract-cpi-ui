@@ -74,7 +74,6 @@
                     <padding><Insets left="20"/></padding>
                     <CheckBox fx:id="extractValueMappingsCb" text="Value Mappings" selected="true"/>
                     <CheckBox fx:id="extractConfigurationsCb" text="Configurations" selected="true"/>
-                    <CheckBox fx:id="extractIflowBundlesCb" text="iFlow Bundles (ZIP/XML)" selected="true"/>
                 </VBox>
                 <Separator/>
                 <CheckBox fx:id="dateFilterEnabledCb" text="Enable Date Filter" onAction="#onDateFilterToggled"/>
@@ -174,6 +173,12 @@
         </Tab>
         <Tab text="iFlow Usage">
             <TableView fx:id="iflowUsageTable" styleClass="data-table"/>
+        </Tab>
+        <Tab text="ECC Endpoints">
+            <TableView fx:id="eccEndpointsTable" styleClass="data-table"/>
+        </Tab>
+        <Tab text="Flow Chains">
+            <TableView fx:id="flowChainsTable" styleClass="data-table"/>
         </Tab>
         <Tab text="API Calls">
             <TableView fx:id="apiCallsTable" styleClass="data-table"/>

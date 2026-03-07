@@ -313,8 +313,8 @@ public class CpiApiService {
             }
         }
 
-        // 4. Download and parse iFlow bundles
-        if (config.getBoolean("extract.iflow.bundles", false)) {
+        // 4. Download and parse iFlow bundles (always — needed for adapter analysis, ECC endpoints, flow chains)
+        {
             log.info("Downloading iFlow bundles for {} flows...", result.getAllFlows().size());
             int parsed = 0, failed = 0;
             for (IntegrationFlow flow : result.getAllFlows()) {
