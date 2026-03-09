@@ -24,6 +24,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
@@ -226,9 +230,22 @@ public class CpiApiService {
      */
     // @author Vikas Singh | Created: 2025-11-16
     public ExtractionResult extractAll() throws IOException {
+        return extractAll(null);
+    }
+
+    /**
+     * Perform a full extraction with progress reporting.
+     */
+    public ExtractionResult extractAll(ExtractionProgressCallback progressCallback) throws IOException {
         ExtractionResult result = new ExtractionResult(config.getBaseUrl());
+        int parallelThreads = config.getInt("api.parallel.threads", 4);
+
+        // Helper to report progress (no-op if callback is null)
+        ExtractionProgressCallback cb = progressCallback != null
+                ? progressCallback : (phase, progress) -> {};
 
         // 1. Fetch packages
+        cb.onProgress("Fetching packages...", 0.02);
         if (config.getBoolean("extract.packages", true)) {
             List<IntegrationPackage> packages = getIntegrationPackages();
 
@@ -247,41 +264,83 @@ public class CpiApiService {
                         totalCount, packages.size(), selectedIds.size());
             }
 
-            // Fetch artifacts per package
+            // Fetch artifacts per package in parallel
+            cb.onProgress("Fetching package artifacts (0/" + packages.size() + ")...", 0.05);
+            final int pkgTotal = packages.size();
+            boolean fetchFlows = config.getBoolean("extract.flows", true);
+            boolean fetchVMs = config.getBoolean("extract.valuemappings", true);
+
+            ExecutorService executor = Executors.newFixedThreadPool(
+                    Math.min(parallelThreads, Math.max(1, pkgTotal)));
+            AtomicInteger pkgDone = new AtomicInteger(0);
+            List<CompletableFuture<Void>> pkgFutures = new ArrayList<>();
+
             for (IntegrationPackage pkg : packages) {
-                try {
-                    if (config.getBoolean("extract.flows", true)) {
-                        List<IntegrationFlow> flows = getPackageFlows(pkg.getId());
-                        pkg.setIntegrationFlows(flows);
-                        result.getAllFlows().addAll(flows);
+                pkgFutures.add(CompletableFuture.runAsync(() -> {
+                    try {
+                        if (fetchFlows) {
+                            List<IntegrationFlow> flows = getPackageFlows(pkg.getId());
+                            synchronized (pkg) {
+                                pkg.setIntegrationFlows(flows);
+                            }
+                            synchronized (result) {
+                                result.getAllFlows().addAll(flows);
+                            }
+                        }
+                        if (fetchVMs) {
+                            List<ValueMapping> vms = getPackageValueMappings(pkg.getId());
+                            synchronized (pkg) {
+                                pkg.setValueMappings(vms);
+                            }
+                            synchronized (result) {
+                                result.getAllValueMappings().addAll(vms);
+                            }
+                        }
+                    } catch (IOException e) {
+                        log.error("Error fetching artifacts for package {}: {}",
+                                pkg.getId(), e.getMessage());
                     }
-                    if (config.getBoolean("extract.valuemappings", true)) {
-                        List<ValueMapping> vms = getPackageValueMappings(pkg.getId());
-                        pkg.setValueMappings(vms);
-                        result.getAllValueMappings().addAll(vms);
-                    }
-                } catch (IOException e) {
-                    log.error("Error fetching artifacts for package {}: {}",
-                            pkg.getId(), e.getMessage());
-                }
+                    int done = pkgDone.incrementAndGet();
+                    cb.onProgress("Fetching package artifacts (" + done + "/" + pkgTotal + ")...",
+                            0.05 + 0.20 * done / pkgTotal);
+                }, executor));
             }
+            CompletableFuture.allOf(pkgFutures.toArray(new CompletableFuture[0])).join();
+            executor.shutdown();
+
             result.setPackages(packages);
         }
 
-        // 2. Fetch configurations for each flow
+        // 2. Fetch configurations in parallel
         if (config.getBoolean("extract.configurations", true)) {
-            log.info("Fetching configurations for {} flows...", result.getAllFlows().size());
+            int flowCount = result.getAllFlows().size();
+            log.info("Fetching configurations for {} flows...", flowCount);
+            cb.onProgress("Fetching configurations (0/" + flowCount + ")...", 0.25);
+
+            ExecutorService cfgExecutor = Executors.newFixedThreadPool(
+                    Math.min(parallelThreads, Math.max(1, flowCount)));
+            AtomicInteger cfgDone = new AtomicInteger(0);
+            List<CompletableFuture<Void>> cfgFutures = new ArrayList<>();
+
             for (IntegrationFlow flow : result.getAllFlows()) {
-                try {
-                    List<Configuration> configs = getConfigurations(flow.getId(), flow.getVersion());
-                    flow.setConfigurations(configs);
-                } catch (Exception e) {
-                    log.warn("Skipping configurations for {}: {}", flow.getId(), e.getMessage());
-                }
+                cfgFutures.add(CompletableFuture.runAsync(() -> {
+                    try {
+                        List<Configuration> configs = getConfigurations(flow.getId(), flow.getVersion());
+                        flow.setConfigurations(configs);
+                    } catch (Exception e) {
+                        log.warn("Skipping configurations for {}: {}", flow.getId(), e.getMessage());
+                    }
+                    int done = cfgDone.incrementAndGet();
+                    cb.onProgress("Fetching configurations (" + done + "/" + flowCount + ")...",
+                            0.25 + 0.10 * done / Math.max(flowCount, 1));
+                }, cfgExecutor));
             }
+            CompletableFuture.allOf(cfgFutures.toArray(new CompletableFuture[0])).join();
+            cfgExecutor.shutdown();
         }
 
         // 3. Fetch runtime status and enrich flows
+        cb.onProgress("Fetching runtime status...", 0.35);
         if (config.getBoolean("extract.runtime.status", true)) {
             try {
                 Map<String, RuntimeArtifact> runtimeMap = getRuntimeStatusMap();
@@ -313,24 +372,42 @@ public class CpiApiService {
             }
         }
 
-        // 4. Download and parse iFlow bundles (always — needed for adapter analysis, ECC endpoints, flow chains)
+        // 4. Download and parse iFlow bundles in parallel
         {
-            log.info("Downloading iFlow bundles for {} flows...", result.getAllFlows().size());
-            int parsed = 0, failed = 0;
+            int flowCount = result.getAllFlows().size();
+            log.info("Downloading iFlow bundles for {} flows...", flowCount);
+            cb.onProgress("Downloading bundles (0/" + flowCount + ")...", 0.40);
+
+            ExecutorService bundleExecutor = Executors.newFixedThreadPool(
+                    Math.min(parallelThreads, Math.max(1, flowCount)));
+            AtomicInteger bundleDone = new AtomicInteger(0);
+            AtomicInteger bundleParsed = new AtomicInteger(0);
+            AtomicInteger bundleFailed = new AtomicInteger(0);
+            List<CompletableFuture<Void>> bundleFutures = new ArrayList<>();
+
             for (IntegrationFlow flow : result.getAllFlows()) {
-                try {
-                    downloadAndParseBundle(flow);
-                    parsed++;
-                } catch (Exception e) {
-                    log.warn("Failed to download/parse bundle for {}: {}", flow.getId(), e.getMessage());
-                    flow.setBundleParseError(e.getMessage());
-                    failed++;
-                }
+                bundleFutures.add(CompletableFuture.runAsync(() -> {
+                    try {
+                        downloadAndParseBundle(flow);
+                        bundleParsed.incrementAndGet();
+                    } catch (Exception e) {
+                        log.warn("Failed to download/parse bundle for {}: {}", flow.getId(), e.getMessage());
+                        flow.setBundleParseError(e.getMessage());
+                        bundleFailed.incrementAndGet();
+                    }
+                    int done = bundleDone.incrementAndGet();
+                    cb.onProgress("Downloading bundles (" + done + "/" + flowCount + ")...",
+                            0.40 + 0.35 * done / Math.max(flowCount, 1));
+                }, bundleExecutor));
             }
-            log.info("iFlow bundles: {} parsed, {} failed", parsed, failed);
+            CompletableFuture.allOf(bundleFutures.toArray(new CompletableFuture[0])).join();
+            bundleExecutor.shutdown();
+
+            log.info("iFlow bundles: {} parsed, {} failed", bundleParsed.get(), bundleFailed.get());
         }
 
         // 5. Fetch message processing logs (filtered to extracted flows when available)
+        cb.onProgress("Fetching message processing logs...", 0.75);
         if (config.getBoolean("extract.message.logs", true)) {
             try {
                 // Collect both Id and Name for each flow — SAP CPI's IntegrationFlowName
@@ -352,7 +429,9 @@ public class CpiApiService {
             }
         }
 
+        cb.onProgress("Finalizing...", 0.95);
         result.computeSummary();
+        cb.onProgress("Extraction complete", 1.0);
         return result;
     }
 

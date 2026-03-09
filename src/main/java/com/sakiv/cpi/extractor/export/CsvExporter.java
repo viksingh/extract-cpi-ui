@@ -63,6 +63,7 @@ public class CsvExporter {
         if (!bundledFlows.isEmpty()) {
             exportEccEndpoints(result, outputPath.resolve(baseName + "_ecc_endpoints.csv"));
             exportFlowChains(result, outputPath.resolve(baseName + "_flow_chains.csv"));
+            exportCredentials(result, outputPath.resolve(baseName + "_credentials.csv"));
         }
 
         // Export raw message processing logs
@@ -189,7 +190,7 @@ public class CsvExporter {
         try (CSVPrinter printer = new CSVPrinter(new FileWriter(filePath.toFile()),
                 CSVFormat.DEFAULT.builder()
                         .setHeader("Package", "iFlow Name", "Total", "Completed", "Failed", "Retry",
-                                "Escalated", "Last Execution", "Last Status")
+                                "Escalated", "Last Execution", "Last Status", "Runtime Status", "Deployed Status")
                         .build())) {
             for (IntegrationFlow flow : result.getAllFlows()) {
                 String flowName = flow.getName() != null ? flow.getName() : flow.getId();
@@ -201,8 +202,26 @@ public class CsvExporter {
                 if ((logs == null || logs.isEmpty()) && !flowId.equals(flowName)) {
                     logs = mplByFlow.get(flowName);
                 }
-                if (logs == null || logs.isEmpty()) {
-                    printer.printRecord(pkgName, flowName, 0, 0, 0, 0, 0, "", "Not Used");
+
+                // E2: Compute deployed status
+                String runtimeStatus = flow.getRuntimeStatus() != null ? flow.getRuntimeStatus() : "UNKNOWN";
+                boolean noLogs = (logs == null || logs.isEmpty());
+                String deployedStatus;
+                if ("STARTED".equalsIgnoreCase(runtimeStatus) && noLogs) {
+                    deployedStatus = "Unused Deployed";
+                } else if ("STARTED".equalsIgnoreCase(runtimeStatus)) {
+                    deployedStatus = "Active";
+                } else if ("NOT_DEPLOYED".equalsIgnoreCase(runtimeStatus)) {
+                    deployedStatus = "Not Deployed";
+                } else if ("ERROR".equalsIgnoreCase(runtimeStatus)) {
+                    deployedStatus = "Error";
+                } else {
+                    deployedStatus = runtimeStatus;
+                }
+
+                if (noLogs) {
+                    printer.printRecord(pkgName, flowName, 0, 0, 0, 0, 0, "", "Not Used",
+                            runtimeStatus, deployedStatus);
                 } else {
                     int total = logs.size();
                     int completed = 0, failed = 0, retry = 0, escalated = 0;
@@ -223,7 +242,7 @@ public class CsvExporter {
                         }
                     }
                     printer.printRecord(pkgName, flowName, total, completed, failed, retry,
-                            escalated, fmt(lastExec), lastStatus);
+                            escalated, fmt(lastExec), lastStatus, runtimeStatus, deployedStatus);
                 }
             }
         }
@@ -367,6 +386,86 @@ public class CsvExporter {
                 for (String[] cons : entry.getValue())
                     printer.printRecord(chainType, entry.getKey(), "(no producer found)", "",
                             cons[1], flowToPackage.getOrDefault(cons[0], ""));
+            }
+        }
+    }
+
+    // =========================================================================
+    // Credentials / Security Materials CSV (E4)
+    // =========================================================================
+
+    private static final java.util.Set<String> CREDENTIAL_KEYS = java.util.Set.of(
+            "credential_name", "credentialname", "credential.name",
+            "private.key.alias", "privatekeyalias",
+            "public.key.alias", "publickeyalias",
+            "certificate.alias", "certificatealias",
+            "senderauthcredential", "sender.auth.credential",
+            "receiverauthcredential", "receiver.auth.credential",
+            "proxyuser", "proxy.user",
+            "securitymaterial", "security.material",
+            "pgp.secret.keyring.alias", "pgpsecretkeyringalias",
+            "pgp.public.keyring.alias", "pgppublickeyringalias"
+    );
+
+    private static boolean isCredentialProperty(String key) {
+        String lower = key.toLowerCase();
+        if (CREDENTIAL_KEYS.contains(lower)) return true;
+        return lower.contains("credential") || lower.contains("keystore")
+                || lower.contains("certificate") || lower.contains("alias")
+                || lower.contains("secret.key") || lower.contains("pgp");
+    }
+
+    private static String classifyCredentialType(String propertyKey) {
+        String lower = propertyKey.toLowerCase();
+        if (lower.contains("oauth")) return "OAuth2";
+        if (lower.contains("saml")) return "SAML";
+        if (lower.contains("pgp")) return "PGP";
+        if (lower.contains("keystore") || lower.contains("key.alias")
+                || lower.contains("keyalias") || lower.contains("certificate")) return "Keystore";
+        if (lower.contains("credential")) return "Credential";
+        return "Security Material";
+    }
+
+    private void exportCredentials(ExtractionResult result, Path filePath) throws IOException {
+        java.util.Map<String, String> flowToPackage = new java.util.LinkedHashMap<>();
+        for (IntegrationPackage pkg : result.getPackages()) {
+            for (IntegrationFlow f : pkg.getIntegrationFlows()) {
+                String flowName = f.getName() != null ? f.getName() : f.getId();
+                flowToPackage.put(flowName, pkg.getName() != null ? pkg.getName() : pkg.getId());
+            }
+        }
+
+        try (CSVPrinter printer = new CSVPrinter(new FileWriter(filePath.toFile()),
+                CSVFormat.DEFAULT.builder()
+                        .setHeader("Package", "iFlow", "Adapter Type", "Direction",
+                                "Credential Name", "Credential Type", "Property Key", "Context")
+                        .build())) {
+            for (IntegrationFlow flow : result.getAllFlows()) {
+                if (!flow.isBundleParsed() || flow.getIflowContent() == null) continue;
+                String flowName = flow.getName() != null ? flow.getName() : flow.getId();
+                String pkgName = flowToPackage.getOrDefault(flowName, "");
+
+                for (var adapter : flow.getIflowContent().getAdapters()) {
+                    String adapterType = adapter.getAdapterType() != null ? adapter.getAdapterType() : "";
+                    String direction = adapter.getDirection() != null ? adapter.getDirection() : "";
+                    for (var entry : adapter.getProperties().entrySet()) {
+                        if (entry.getValue() == null || entry.getValue().isBlank()) continue;
+                        if (isCredentialProperty(entry.getKey())) {
+                            printer.printRecord(pkgName, flowName, adapterType, direction,
+                                    entry.getValue(), classifyCredentialType(entry.getKey()),
+                                    entry.getKey(), "Adapter: " + adapterType);
+                        }
+                    }
+                }
+
+                for (var entry : flow.getIflowContent().getProcessProperties().entrySet()) {
+                    if (entry.getValue() == null || entry.getValue().isBlank()) continue;
+                    if (isCredentialProperty(entry.getKey())) {
+                        printer.printRecord(pkgName, flowName, "", "",
+                                entry.getValue(), classifyCredentialType(entry.getKey()),
+                                entry.getKey(), "Process Property");
+                    }
+                }
             }
         }
     }

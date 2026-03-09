@@ -91,6 +91,11 @@ public class ExcelExporter {
                 createFlowChainsSheet(workbook, headerStyle, result);
             }
 
+            // Sheet: Credentials / Security Materials (E4)
+            if (!bundledFlows.isEmpty()) {
+                createCredentialsSheet(workbook, headerStyle, result);
+            }
+
             // Sheet: Message Processing Logs (raw)
             if (result.getMessageProcessingLogs() != null && !result.getMessageProcessingLogs().isEmpty()) {
                 createMessageLogsSheet(workbook, headerStyle, result.getMessageProcessingLogs());
@@ -446,7 +451,7 @@ public class ExcelExporter {
         Sheet sheet = wb.createSheet("iFlow Usage");
         String[] headers = {
                 "Package", "iFlow Name", "Total", "Completed", "Failed", "Retry", "Escalated",
-                "Last Execution", "Last Status"
+                "Last Execution", "Last Status", "Runtime Status", "Deployed Status"
         };
         createHeaderRow(sheet, headerStyle, headers);
 
@@ -484,6 +489,12 @@ public class ExcelExporter {
         notUsedFont.setItalic(true);
         notUsedStyle.setFont(notUsedFont);
 
+        CellStyle unusedDeployedStyle = wb.createCellStyle();
+        Font unusedDeployedFont = wb.createFont();
+        unusedDeployedFont.setColor(IndexedColors.ORANGE.getIndex());
+        unusedDeployedFont.setBold(true);
+        unusedDeployedStyle.setFont(unusedDeployedFont);
+
         int rowNum = 1;
         for (IntegrationFlow flow : result.getAllFlows()) {
             String flowName = flow.getName() != null ? flow.getName() : flow.getId();
@@ -495,12 +506,29 @@ public class ExcelExporter {
             if ((logs == null || logs.isEmpty()) && !flowId.equals(flowName)) {
                 logs = mplByFlow.get(flowName);
             }
+
+            // E2: Compute deployed status
+            String runtimeStatus = flow.getRuntimeStatus() != null ? flow.getRuntimeStatus() : "UNKNOWN";
+            boolean noLogs = (logs == null || logs.isEmpty());
+            String deployedStatus;
+            if ("STARTED".equalsIgnoreCase(runtimeStatus) && noLogs) {
+                deployedStatus = "Unused Deployed";
+            } else if ("STARTED".equalsIgnoreCase(runtimeStatus)) {
+                deployedStatus = "Active";
+            } else if ("NOT_DEPLOYED".equalsIgnoreCase(runtimeStatus)) {
+                deployedStatus = "Not Deployed";
+            } else if ("ERROR".equalsIgnoreCase(runtimeStatus)) {
+                deployedStatus = "Error";
+            } else {
+                deployedStatus = runtimeStatus;
+            }
+
             Row row = sheet.createRow(rowNum++);
             int col = 0;
             row.createCell(col++).setCellValue(nullSafe(pkgName));
             row.createCell(col++).setCellValue(nullSafe(flowName));
 
-            if (logs == null || logs.isEmpty()) {
+            if (noLogs) {
                 row.createCell(col++).setCellValue(0);
                 row.createCell(col++).setCellValue(0);
                 row.createCell(col++).setCellValue(0);
@@ -538,6 +566,13 @@ public class ExcelExporter {
                 row.createCell(col++).setCellValue(escalated);
                 row.createCell(col++).setCellValue(formatCpiDate(lastExec));
                 row.createCell(col++).setCellValue(nullSafe(lastStatus));
+            }
+            // E2: Runtime Status and Deployed Status columns
+            row.createCell(col++).setCellValue(nullSafe(runtimeStatus));
+            Cell deployedStatusCell = row.createCell(col++);
+            deployedStatusCell.setCellValue(deployedStatus);
+            if ("Unused Deployed".equals(deployedStatus)) {
+                deployedStatusCell.setCellStyle(unusedDeployedStyle);
             }
         }
 
@@ -676,6 +711,107 @@ public class ExcelExporter {
             return value.substring(0, MAX_CELL_LENGTH - 3) + "...";
         }
         return value;
+    }
+
+    // =========================================================================
+    // Credentials / Security Materials Sheet (E4)
+    // =========================================================================
+
+    private static final java.util.Set<String> CREDENTIAL_KEYS = java.util.Set.of(
+            "credential_name", "credentialname", "credential.name",
+            "private.key.alias", "privatekeyalias",
+            "public.key.alias", "publickeyalias",
+            "certificate.alias", "certificatealias",
+            "senderauthcredential", "sender.auth.credential",
+            "receiverauthcredential", "receiver.auth.credential",
+            "proxyuser", "proxy.user",
+            "securitymaterial", "security.material",
+            "pgp.secret.keyring.alias", "pgpsecretkeyringalias",
+            "pgp.public.keyring.alias", "pgppublickeyringalias"
+    );
+
+    private static boolean isCredentialProperty(String key) {
+        String lower = key.toLowerCase();
+        if (CREDENTIAL_KEYS.contains(lower)) return true;
+        return lower.contains("credential") || lower.contains("keystore")
+                || lower.contains("certificate") || lower.contains("alias")
+                || lower.contains("secret.key") || lower.contains("pgp");
+    }
+
+    private static String classifyCredentialType(String propertyKey) {
+        String lower = propertyKey.toLowerCase();
+        if (lower.contains("oauth")) return "OAuth2";
+        if (lower.contains("saml")) return "SAML";
+        if (lower.contains("pgp")) return "PGP";
+        if (lower.contains("keystore") || lower.contains("key.alias")
+                || lower.contains("keyalias") || lower.contains("certificate")) return "Keystore";
+        if (lower.contains("credential")) return "Credential";
+        return "Security Material";
+    }
+
+    private void createCredentialsSheet(Workbook wb, CellStyle headerStyle, ExtractionResult result) {
+        Sheet sheet = wb.createSheet("Credentials");
+        String[] headers = {
+                "Package", "iFlow", "Adapter Type", "Direction",
+                "Credential Name", "Credential Type", "Property Key", "Context"
+        };
+        createHeaderRow(sheet, headerStyle, headers);
+
+        java.util.Map<String, String> flowToPackage = new java.util.LinkedHashMap<>();
+        for (IntegrationPackage pkg : result.getPackages()) {
+            for (IntegrationFlow f : pkg.getIntegrationFlows()) {
+                String flowName = f.getName() != null ? f.getName() : f.getId();
+                flowToPackage.put(flowName, pkg.getName() != null ? pkg.getName() : pkg.getId());
+            }
+        }
+
+        int rowNum = 1;
+        for (IntegrationFlow flow : result.getAllFlows()) {
+            if (!flow.isBundleParsed() || flow.getIflowContent() == null) continue;
+            String flowName = flow.getName() != null ? flow.getName() : flow.getId();
+            String pkgName = flowToPackage.getOrDefault(flowName, "");
+
+            for (var adapter : flow.getIflowContent().getAdapters()) {
+                String adapterType = adapter.getAdapterType() != null ? adapter.getAdapterType() : "";
+                String direction = adapter.getDirection() != null ? adapter.getDirection() : "";
+                for (var entry : adapter.getProperties().entrySet()) {
+                    if (entry.getValue() == null || entry.getValue().isBlank()) continue;
+                    if (isCredentialProperty(entry.getKey())) {
+                        Row row = sheet.createRow(rowNum++);
+                        int col = 0;
+                        row.createCell(col++).setCellValue(nullSafe(pkgName));
+                        row.createCell(col++).setCellValue(nullSafe(flowName));
+                        row.createCell(col++).setCellValue(nullSafe(adapterType));
+                        row.createCell(col++).setCellValue(nullSafe(direction));
+                        row.createCell(col++).setCellValue(nullSafe(entry.getValue()));
+                        row.createCell(col++).setCellValue(classifyCredentialType(entry.getKey()));
+                        row.createCell(col++).setCellValue(nullSafe(entry.getKey()));
+                        row.createCell(col++).setCellValue("Adapter: " + adapterType);
+                    }
+                }
+            }
+
+            for (var entry : flow.getIflowContent().getProcessProperties().entrySet()) {
+                if (entry.getValue() == null || entry.getValue().isBlank()) continue;
+                if (isCredentialProperty(entry.getKey())) {
+                    Row row = sheet.createRow(rowNum++);
+                    int col = 0;
+                    row.createCell(col++).setCellValue(nullSafe(pkgName));
+                    row.createCell(col++).setCellValue(nullSafe(flowName));
+                    row.createCell(col++).setCellValue("");
+                    row.createCell(col++).setCellValue("");
+                    row.createCell(col++).setCellValue(nullSafe(entry.getValue()));
+                    row.createCell(col++).setCellValue(classifyCredentialType(entry.getKey()));
+                    row.createCell(col++).setCellValue(nullSafe(entry.getKey()));
+                    row.createCell(col++).setCellValue("Process Property");
+                }
+            }
+        }
+
+        autoSizeColumns(sheet, headers.length);
+        if (rowNum > 1) {
+            sheet.setAutoFilter(new CellRangeAddress(0, 0, 0, headers.length - 1));
+        }
     }
 
     // =========================================================================

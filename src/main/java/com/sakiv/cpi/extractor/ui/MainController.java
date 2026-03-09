@@ -8,6 +8,7 @@ import com.sakiv.cpi.extractor.model.*;
 import com.sakiv.cpi.extractor.service.CpiApiService;
 import com.sakiv.cpi.extractor.service.CpiHttpClient;
 import com.sakiv.cpi.extractor.service.CpiHttpClient.ApiCallRecord;
+import com.sakiv.cpi.extractor.service.ProfileManager;
 import com.sakiv.cpi.extractor.service.SnapshotLoader;
 import com.sakiv.cpi.extractor.util.DateFilterUtil;
 import javafx.application.Platform;
@@ -52,7 +53,11 @@ public class MainController {
     private final Map<String, List<IntegrationFlow>> origPkgFlows = new HashMap<>();
     private final Map<String, List<ValueMapping>> origPkgVMs = new HashMap<>();
 
+    // Connection Profiles (E9)
+    private final ProfileManager profileManager = new ProfileManager();
+
     // Connection fields
+    @FXML private ComboBox<String> profileCombo;
     @FXML private TextField tenantUrlField;
     @FXML private ComboBox<String> authTypeCombo;
     @FXML private Label oauthTokenUrlLabel;
@@ -94,6 +99,7 @@ public class MainController {
     @FXML private ComboBox<String> exportFormatCombo;
     @FXML private TextField outputDirField;
     @FXML private TextField filenamePrefixField;
+    @FXML private CheckBox autoSnapshotCb;
 
     // Results
     @FXML private TabPane resultsTabPane;
@@ -105,6 +111,7 @@ public class MainController {
     @FXML private TableView<RuntimeArtifact> runtimeTable;
     @FXML private TableView<AdapterRow> adaptersTable;
     @FXML private TableView<IFlowUsageRow> iflowUsageTable;
+    @FXML private TableView<CredentialRow> credentialsTable;
     @FXML private TableView<EccEndpointRow> eccEndpointsTable;
     @FXML private TableView<FlowChainRow> flowChainsTable;
     @FXML private TableView<ApiCallRow> apiCallsTable;
@@ -149,6 +156,7 @@ public class MainController {
         initRuntimeTable();
         initAdaptersTable();
         initIflowUsageTable();
+        initCredentialsTable();
         initEccEndpointsTable();
         initFlowChainsTable();
         initApiCallsTable();
@@ -178,6 +186,111 @@ public class MainController {
                     cb.setVisible(match);
                     cb.setManaged(match);
                 }
+            }
+        });
+
+        // Load connection profiles (E9)
+        loadProfileCombo();
+    }
+
+    // =========================================================================
+    // Connection Profiles (E9)
+    // =========================================================================
+
+    private void loadProfileCombo() {
+        List<ConnectionProfile> profiles = profileManager.loadProfiles();
+        List<String> names = new ArrayList<>();
+        names.add(""); // empty = no profile selected
+        for (ConnectionProfile p : profiles) {
+            names.add(p.getName());
+        }
+        String currentSelection = profileCombo.getValue();
+        profileCombo.setItems(FXCollections.observableArrayList(names));
+        if (currentSelection != null && names.contains(currentSelection)) {
+            profileCombo.setValue(currentSelection);
+        }
+    }
+
+    @FXML
+    private void onProfileSelected() {
+        String selected = profileCombo.getValue();
+        if (selected == null || selected.isEmpty()) return;
+
+        List<ConnectionProfile> profiles = profileManager.loadProfiles();
+        for (ConnectionProfile p : profiles) {
+            if (p.getName().equals(selected)) {
+                applyProfile(p);
+                appendLog("Profile loaded: " + selected);
+                return;
+            }
+        }
+    }
+
+    private void applyProfile(ConnectionProfile p) {
+        if (p.getTenantUrl() != null) tenantUrlField.setText(p.getTenantUrl());
+        if (p.getAuthType() != null) {
+            authTypeCombo.setValue("basic".equalsIgnoreCase(p.getAuthType()) ? "Basic" : "OAuth2");
+            onAuthTypeChanged();
+        }
+        if (p.getOauthTokenUrl() != null) oauthTokenUrlField.setText(p.getOauthTokenUrl());
+        if (p.getOauthClientId() != null) oauthClientIdField.setText(p.getOauthClientId());
+        if (p.getOauthClientSecret() != null) oauthClientSecretField.setText(p.getOauthClientSecret());
+        if (p.getBasicUsername() != null) basicUsernameField.setText(p.getBasicUsername());
+        if (p.getBasicPassword() != null) basicPasswordField.setText(p.getBasicPassword());
+        if (p.getOutputDir() != null && !p.getOutputDir().isBlank()) outputDirField.setText(p.getOutputDir());
+        if (p.getFilenamePrefix() != null && !p.getFilenamePrefix().isBlank()) filenamePrefixField.setText(p.getFilenamePrefix());
+    }
+
+    @FXML
+    private void onSaveProfile() {
+        TextInputDialog dialog = new TextInputDialog(
+                profileCombo.getValue() != null && !profileCombo.getValue().isEmpty()
+                        ? profileCombo.getValue() : "");
+        dialog.setTitle("Save Connection Profile");
+        dialog.setHeaderText("Enter a name for this profile (e.g., DEV, QA, PROD):");
+        dialog.setContentText("Profile name:");
+
+        dialog.showAndWait().ifPresent(name -> {
+            if (name.isBlank()) {
+                showError("Validation Error", "Profile name cannot be empty.");
+                return;
+            }
+            ConnectionProfile profile = new ConnectionProfile();
+            profile.setName(name.trim());
+            profile.setTenantUrl(tenantUrlField.getText().trim());
+            profile.setAuthType("OAuth2".equals(authTypeCombo.getValue()) ? "oauth2" : "basic");
+            profile.setOauthTokenUrl(oauthTokenUrlField.getText().trim());
+            profile.setOauthClientId(oauthClientIdField.getText().trim());
+            profile.setOauthClientSecret(oauthClientSecretField.getText().trim());
+            profile.setBasicUsername(basicUsernameField.getText().trim());
+            profile.setBasicPassword(basicPasswordField.getText().trim());
+            profile.setOutputDir(outputDirField.getText().trim());
+            profile.setFilenamePrefix(filenamePrefixField.getText().trim());
+
+            profileManager.addOrUpdateProfile(profile);
+            loadProfileCombo();
+            profileCombo.setValue(name.trim());
+            appendLog("Profile saved: " + name.trim());
+        });
+    }
+
+    @FXML
+    private void onDeleteProfile() {
+        String selected = profileCombo.getValue();
+        if (selected == null || selected.isEmpty()) {
+            showError("No Profile Selected", "Select a profile to delete.");
+            return;
+        }
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
+                "Delete profile '" + selected + "'?", ButtonType.YES, ButtonType.NO);
+        confirm.setTitle("Delete Profile");
+        confirm.setHeaderText(null);
+        confirm.showAndWait().ifPresent(btn -> {
+            if (btn == ButtonType.YES) {
+                profileManager.deleteProfile(selected);
+                loadProfileCombo();
+                profileCombo.setValue("");
+                appendLog("Profile deleted: " + selected);
             }
         });
     }
@@ -626,6 +739,7 @@ public class MainController {
         // JavaFX UI controls must only be read from the FX application thread.
         final Properties props = buildPropertiesFromForm();
         final String exportFormat = getExportFormat();
+        final boolean autoSnapshot = autoSnapshotCb.isSelected();
 
         // If packages were pre-fetched, collect checked package IDs
         if (fetchedPackages != null) {
@@ -650,7 +764,7 @@ public class MainController {
 
         extractButton.setDisable(true);
         progressBar.setVisible(true);
-        progressBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
+        progressBar.setProgress(0);
         progressLabel.setText("Starting extraction...");
         logTextArea.clear();
 
@@ -671,7 +785,11 @@ public class MainController {
                 ExtractionResult result;
                 try (CpiHttpClient httpClient = new CpiHttpClient(config)) {
                     CpiApiService apiService = new CpiApiService(config, httpClient);
-                    result = apiService.extractAll();
+                    // E8: Pass progress callback that updates Task progress
+                    result = apiService.extractAll((phase, progress) -> {
+                        updateMessage(phase);
+                        updateProgress(progress, 1.0);
+                    });
                     result.setApiCallLog(new ArrayList<>(httpClient.getApiCallLog()));
                 }
 
@@ -680,10 +798,13 @@ public class MainController {
             }
         };
 
+        // E8: Bind progress bar to task progress
+        progressBar.progressProperty().bind(task.progressProperty());
         task.messageProperty().addListener((obs, oldMsg, newMsg) ->
                 Platform.runLater(() -> progressLabel.setText(newMsg)));
 
         task.setOnSucceeded(event -> {
+            progressBar.progressProperty().unbind();
             ExtractionResult result = task.getValue();
             Platform.runLater(() -> {
                 progressLabel.setText("Applying filter...");
@@ -694,11 +815,12 @@ public class MainController {
                 applyDateFilter(result);
                 populateResults(result);
                 // Export filtered data in a separate background task
-                startExport(result, exportFormat, props);
+                startExport(result, exportFormat, props, autoSnapshot);
             });
         });
 
         task.setOnFailed(event -> {
+            progressBar.progressProperty().unbind();
             Throwable ex = task.getException();
             Platform.runLater(() -> {
                 progressBar.setVisible(false);
@@ -807,7 +929,8 @@ public class MainController {
     }
 
     // @author Vikas Singh | Created: 2026-02-22
-    private void startExport(ExtractionResult result, String exportFormat, Properties props) {
+    private void startExport(ExtractionResult result, String exportFormat,
+                             Properties props, boolean autoSnapshot) {
         String outputDir = props.getProperty("export.output.dir", "C:\\temp\\CPI Extracts");
         String prefix = props.getProperty("export.filename.prefix", "cpi_artifacts");
         Task<Void> exportTask = new Task<>() {
@@ -822,6 +945,11 @@ public class MainController {
                         new CsvExporter().export(result, outputDir, prefix);
                         new JsonExporter().export(result, outputDir, prefix);
                     }
+                }
+                // E17: Auto-save snapshot
+                if (autoSnapshot) {
+                    String snapshotPath = new JsonExporter().export(result, outputDir, prefix + "_snapshot");
+                    Platform.runLater(() -> appendLog("Auto-saved snapshot: " + snapshotPath));
                 }
                 return null;
             }
@@ -913,7 +1041,7 @@ public class MainController {
         }
         adaptersTable.setItems(FXCollections.observableArrayList(adapterRows));
 
-        // Build flow-to-package mapping (shared across usage, ECC, chains tabs)
+        // Build flow-to-package mapping (shared across usage, ECC, chains, credentials tabs)
         Map<String, String> flowToPackage = new LinkedHashMap<>();
         for (IntegrationPackage pkg : result.getPackages()) {
             for (IntegrationFlow flow : pkg.getIntegrationFlows()) {
@@ -924,7 +1052,7 @@ public class MainController {
             }
         }
 
-        // iFlow Usage tab — show all flows with MPL aggregation; mark unused flows
+        // iFlow Usage tab — show all flows with MPL aggregation; mark unused flows (E2)
         List<IFlowUsageRow> usageRows = new ArrayList<>();
         {
             // Build MPL lookup by flow name
@@ -945,14 +1073,31 @@ public class MainController {
                 if (flowName == null) continue;
                 String pkgName = flowToPackage.getOrDefault(flowName, "");
 
-                // Try matching by Id first, then by Name — SAP CPI's IntegrationFlowName
-                // can store either depending on the tenant
+                // Try matching by Id first, then by Name
                 List<MessageProcessingLog> logs = mplByFlow.get(flowId);
                 if ((logs == null || logs.isEmpty()) && !flowId.equals(flowName)) {
                     logs = mplByFlow.get(flowName);
                 }
-                if (logs == null || logs.isEmpty()) {
-                    usageRows.add(new IFlowUsageRow(pkgName, flowName, 0, 0, 0, 0, 0, "", "Not Used"));
+
+                // E2: Compute deployed status
+                String runtimeStatus = flow.getRuntimeStatus() != null ? flow.getRuntimeStatus() : "UNKNOWN";
+                String deployedStatus;
+                boolean noLogs = (logs == null || logs.isEmpty());
+                if ("STARTED".equalsIgnoreCase(runtimeStatus) && noLogs) {
+                    deployedStatus = "Unused Deployed";
+                } else if ("STARTED".equalsIgnoreCase(runtimeStatus)) {
+                    deployedStatus = "Active";
+                } else if ("NOT_DEPLOYED".equalsIgnoreCase(runtimeStatus)) {
+                    deployedStatus = "Not Deployed";
+                } else if ("ERROR".equalsIgnoreCase(runtimeStatus)) {
+                    deployedStatus = "Error";
+                } else {
+                    deployedStatus = runtimeStatus;
+                }
+
+                if (noLogs) {
+                    usageRows.add(new IFlowUsageRow(pkgName, flowName, 0, 0, 0, 0, 0, "",
+                            "Not Used", runtimeStatus, deployedStatus));
                 } else {
                     int total = logs.size();
                     int completed = 0, failed = 0, retry = 0, escalated = 0;
@@ -973,11 +1118,49 @@ public class MainController {
                         }
                     }
                     usageRows.add(new IFlowUsageRow(pkgName, flowName, total, completed, failed,
-                            retry, escalated, DateFilterUtil.formatCpiDate(lastExec), lastStatus));
+                            retry, escalated, DateFilterUtil.formatCpiDate(lastExec), lastStatus,
+                            runtimeStatus, deployedStatus));
                 }
             }
         }
         iflowUsageTable.setItems(FXCollections.observableArrayList(usageRows));
+
+        // Credentials tab — extract security material references from adapter properties (E4)
+        List<CredentialRow> credentialRows = new ArrayList<>();
+        for (IntegrationFlow flow : result.getAllFlows()) {
+            if (!flow.isBundleParsed() || flow.getIflowContent() == null) continue;
+            String flowName = flow.getName() != null ? flow.getName() : flow.getId();
+            String pkgName = flowToPackage.getOrDefault(flowName, "");
+
+            for (var adapter : flow.getIflowContent().getAdapters()) {
+                String adapterType = adapter.getAdapterType() != null ? adapter.getAdapterType() : "";
+                String direction = adapter.getDirection() != null ? adapter.getDirection() : "";
+
+                for (var entry : adapter.getProperties().entrySet()) {
+                    String key = entry.getKey();
+                    String value = entry.getValue();
+                    if (value == null || value.isBlank()) continue;
+                    if (isCredentialProperty(key)) {
+                        credentialRows.add(new CredentialRow(pkgName, flowName, adapterType,
+                                direction, value, classifyCredentialType(key), key,
+                                "Adapter: " + adapterType));
+                    }
+                }
+            }
+
+            // Also scan process properties for credential references
+            for (var entry : flow.getIflowContent().getProcessProperties().entrySet()) {
+                String key = entry.getKey();
+                String value = entry.getValue();
+                if (value == null || value.isBlank()) continue;
+                if (isCredentialProperty(key)) {
+                    credentialRows.add(new CredentialRow(
+                            pkgName, flowName, "", "", value,
+                            classifyCredentialType(key), key, "Process Property"));
+                }
+            }
+        }
+        credentialsTable.setItems(FXCollections.observableArrayList(credentialRows));
 
         // ECC Endpoints tab — flag adapters using ECC-specific protocols
         List<EccEndpointRow> eccRows = new ArrayList<>();
@@ -1159,9 +1342,53 @@ public class MainController {
         TableColumn<IFlowUsageRow, String> lastStatusCol = new TableColumn<>("Last Status");
         lastStatusCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().lastStatus()));
 
+        // E2: Runtime Status and Deployed Status columns
+        TableColumn<IFlowUsageRow, String> runtimeStatusCol = new TableColumn<>("Runtime Status");
+        runtimeStatusCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().runtimeStatus()));
+
+        TableColumn<IFlowUsageRow, String> deployedStatusCol = new TableColumn<>("Deployed Status");
+        deployedStatusCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().deployedStatus()));
+        deployedStatusCol.setPrefWidth(140);
+
         iflowUsageTable.getColumns().addAll(pkgCol, nameCol, totalCol, completedCol, failedCol,
-                retryCol, escalatedCol, lastExecCol, lastStatusCol);
+                retryCol, escalatedCol, lastExecCol, lastStatusCol, runtimeStatusCol, deployedStatusCol);
         iflowUsageTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_SUBSEQUENT_COLUMNS);
+    }
+
+    // E4: Credentials table
+    @SuppressWarnings("unchecked")
+    private void initCredentialsTable() {
+        TableColumn<CredentialRow, String> pkgCol = new TableColumn<>("Package");
+        pkgCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().packageName()));
+
+        TableColumn<CredentialRow, String> flowCol = new TableColumn<>("iFlow");
+        flowCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().flowName()));
+        flowCol.setPrefWidth(200);
+
+        TableColumn<CredentialRow, String> adapterCol = new TableColumn<>("Adapter Type");
+        adapterCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().adapterType()));
+
+        TableColumn<CredentialRow, String> dirCol = new TableColumn<>("Direction");
+        dirCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().direction()));
+
+        TableColumn<CredentialRow, String> credNameCol = new TableColumn<>("Credential Name");
+        credNameCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().credentialName()));
+        credNameCol.setPrefWidth(200);
+
+        TableColumn<CredentialRow, String> credTypeCol = new TableColumn<>("Credential Type");
+        credTypeCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().credentialType()));
+        credTypeCol.setPrefWidth(140);
+
+        TableColumn<CredentialRow, String> propKeyCol = new TableColumn<>("Property Key");
+        propKeyCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().propertyKey()));
+        propKeyCol.setPrefWidth(180);
+
+        TableColumn<CredentialRow, String> contextCol = new TableColumn<>("Context");
+        contextCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().context()));
+
+        credentialsTable.getColumns().addAll(pkgCol, flowCol, adapterCol, dirCol,
+                credNameCol, credTypeCol, propKeyCol, contextCol);
+        credentialsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_SUBSEQUENT_COLUMNS);
     }
 
     @SuppressWarnings("unchecked")
@@ -1360,7 +1587,7 @@ public class MainController {
     }
 
     // =========================================================================
-    // Config row record for flattened configuration display
+    // Row Records
     // =========================================================================
 
     public record ConfigRow(String artifactId, String artifactName,
@@ -1372,8 +1599,10 @@ public class MainController {
 
     public record ApiCallRow(String method, String path, int statusCode, String duration) {}
 
+    // E2: Added runtimeStatus and deployedStatus fields
     public record IFlowUsageRow(String packageName, String flowName, int total, int completed, int failed,
-                                int retry, int escalated, String lastExecution, String lastStatus) {}
+                                int retry, int escalated, String lastExecution, String lastStatus,
+                                String runtimeStatus, String deployedStatus) {}
 
     public record EccEndpointRow(String packageName, String flowName, String direction,
                                   String adapterType, String transportProtocol, String messageProtocol,
@@ -1382,6 +1611,47 @@ public class MainController {
     public record FlowChainRow(String chainType, String queueOrAddress,
                                 String senderFlow, String senderPackage,
                                 String receiverFlow, String receiverPackage) {}
+
+    // E4: Credential inventory row
+    public record CredentialRow(String packageName, String flowName, String adapterType,
+                                 String direction, String credentialName, String credentialType,
+                                 String propertyKey, String context) {}
+
+    // =========================================================================
+    // E4: Credential Detection Helpers
+    // =========================================================================
+
+    private static final Set<String> CREDENTIAL_KEYS = Set.of(
+            "credential_name", "credentialname", "credential.name",
+            "private.key.alias", "privatekeyalias",
+            "public.key.alias", "publickeyalias",
+            "certificate.alias", "certificatealias",
+            "senderauthcredential", "sender.auth.credential",
+            "receiverauthcredential", "receiver.auth.credential",
+            "proxyuser", "proxy.user",
+            "securitymaterial", "security.material",
+            "pgp.secret.keyring.alias", "pgpsecretkeyringalias",
+            "pgp.public.keyring.alias", "pgppublickeyringalias"
+    );
+
+    private static boolean isCredentialProperty(String key) {
+        String lower = key.toLowerCase();
+        if (CREDENTIAL_KEYS.contains(lower)) return true;
+        return lower.contains("credential") || lower.contains("keystore")
+                || lower.contains("certificate") || lower.contains("alias")
+                || lower.contains("secret.key") || lower.contains("pgp");
+    }
+
+    private static String classifyCredentialType(String propertyKey) {
+        String lower = propertyKey.toLowerCase();
+        if (lower.contains("oauth")) return "OAuth2";
+        if (lower.contains("saml")) return "SAML";
+        if (lower.contains("pgp")) return "PGP";
+        if (lower.contains("keystore") || lower.contains("key.alias")
+                || lower.contains("keyalias") || lower.contains("certificate")) return "Keystore";
+        if (lower.contains("credential")) return "Credential";
+        return "Security Material";
+    }
 
     // =========================================================================
     // ECC Endpoint Classification
@@ -1433,7 +1703,6 @@ public class MainController {
         }
 
         // Collect JMS/ProcessDirect producers and consumers
-        // Key = queue/address name, Value = list of (flowId, flowName, direction)
         Map<String, List<String[]>> jmsProducers = new LinkedHashMap<>();
         Map<String, List<String[]>> jmsConsumers = new LinkedHashMap<>();
         Map<String, List<String[]>> pdProducers = new LinkedHashMap<>();
@@ -1469,7 +1738,7 @@ public class MainController {
 
         List<FlowChainRow> rows = new ArrayList<>();
 
-        // Match JMS chains: only show when both producer and consumer exist
+        // Match JMS chains
         for (var entry : jmsProducers.entrySet()) {
             String queue = entry.getKey();
             List<String[]> consumers = jmsConsumers.getOrDefault(queue, List.of());
@@ -1483,7 +1752,7 @@ public class MainController {
             }
         }
 
-        // Match ProcessDirect chains: only show when both producer and consumer exist
+        // Match ProcessDirect chains
         for (var entry : pdProducers.entrySet()) {
             String addr = entry.getKey();
             List<String[]> consumers = pdConsumers.getOrDefault(addr, List.of());
@@ -1505,18 +1774,12 @@ public class MainController {
         return rows;
     }
 
-    /**
-     * Resolve the queue name or endpoint address from adapter properties.
-     * JMS adapters store the queue in "Destination", "QueueName", or "jms.destination".
-     * ProcessDirect uses "Address". Falls back to the adapter's address field.
-     */
     private static String resolveChainAddress(IFlowAdapter adapter) {
         String type = adapter.getAdapterType() != null ? adapter.getAdapterType().toLowerCase() : "";
         Map<String, String> props = adapter.getProperties();
         String dir = adapter.getDirection() != null ? adapter.getDirection() : "";
 
         if (type.contains("jms")) {
-            // SAP CPI uses QueueName_outbound (Receiver/producer) and QueueName_inbound (Sender/consumer)
             for (String key : List.of(
                     "Receiver".equalsIgnoreCase(dir) ? "QueueName_outbound" : "QueueName_inbound",
                     "QueueName_outbound", "QueueName_inbound",
@@ -1527,19 +1790,16 @@ public class MainController {
         }
 
         if (type.contains("processdirect")) {
-            // SAP CPI uses lowercase "address" property
             for (String key : List.of("address", "Address", "ProcessDirectAddress")) {
                 String val = props.get(key);
                 if (val != null && !val.isBlank()) return val;
             }
         }
 
-        // Fall back to the parsed address field
         if (adapter.getAddress() != null && !adapter.getAddress().isBlank()) {
             return adapter.getAddress();
         }
 
-        // Last resort: scan all properties for anything that looks like a queue/address
         for (var entry : props.entrySet()) {
             String key = entry.getKey().toLowerCase();
             if (key.contains("destination") || key.contains("queue") || key.contains("address")) {

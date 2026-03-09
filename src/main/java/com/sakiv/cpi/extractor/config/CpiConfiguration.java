@@ -62,6 +62,7 @@ public class CpiConfiguration {
         properties.setProperty("extract.valuemappings", "true");
         properties.setProperty("extract.configurations", "true");
         properties.setProperty("extract.runtime.status", "true");
+        properties.setProperty("api.parallel.threads", "4");
     }
 
     // @author Vikas Singh | Created: 2025-11-01

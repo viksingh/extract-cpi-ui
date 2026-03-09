@@ -14,6 +14,15 @@
     <!-- Title -->
     <Label text="SAP CPI Artifact Extractor" styleClass="app-title"/>
 
+    <!-- Connection Profiles -->
+    <HBox spacing="10" alignment="CENTER_LEFT">
+        <Label text="Profile:"/>
+        <ComboBox fx:id="profileCombo" promptText="(no profile)" prefWidth="200"
+                  onAction="#onProfileSelected"/>
+        <Button text="Save Profile" onAction="#onSaveProfile" styleClass="action-btn"/>
+        <Button text="Delete Profile" onAction="#onDeleteProfile" styleClass="action-btn"/>
+    </HBox>
+
     <!-- Connection Settings -->
     <TitledPane text="Connection Settings" collapsible="false" styleClass="section-pane">
         <GridPane hgap="10" vgap="8">
@@ -109,6 +118,9 @@
                 <Label text="Prefix:" GridPane.columnIndex="0" GridPane.rowIndex="2"/>
                 <TextField fx:id="filenamePrefixField" text="cpi_artifacts"
                            GridPane.columnIndex="1" GridPane.rowIndex="2" GridPane.columnSpan="2"/>
+
+                <CheckBox fx:id="autoSnapshotCb" text="Auto-save snapshot" selected="true"
+                          GridPane.columnIndex="0" GridPane.rowIndex="3" GridPane.columnSpan="3"/>
             </GridPane>
         </TitledPane>
     </HBox>
@@ -173,6 +185,9 @@
         </Tab>
         <Tab text="iFlow Usage">
             <TableView fx:id="iflowUsageTable" styleClass="data-table"/>
+        </Tab>
+        <Tab text="Credentials">
+            <TableView fx:id="credentialsTable" styleClass="data-table"/>
         </Tab>
         <Tab text="ECC Endpoints">
             <TableView fx:id="eccEndpointsTable" styleClass="data-table"/>
