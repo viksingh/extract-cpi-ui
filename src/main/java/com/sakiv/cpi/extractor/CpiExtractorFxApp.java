@@ -1,5 +1,6 @@
 package com.sakiv.cpi.extractor;
 
+import com.sakiv.cpi.extractor.util.LocaleManager;
 import javafx.application.Application;
 import javafx.fxml.FXMLLoader;
 import javafx.scene.Parent;
@@ -12,12 +13,13 @@ public class CpiExtractorFxApp extends Application {
     @Override
     public void start(Stage primaryStage) throws Exception {
         FXMLLoader loader = new FXMLLoader(getClass().getResource("/fxml/main.fxml"));
+        loader.setResources(LocaleManager.getBundle());
         Parent root = loader.load();
 
         Scene scene = new Scene(root);
         scene.getStylesheets().add(getClass().getResource("/css/styles.css").toExternalForm());
 
-        primaryStage.setTitle("SAP CPI Artifact Extractor");
+        primaryStage.setTitle(LocaleManager.getString("app.title"));
         primaryStage.setScene(scene);
         primaryStage.setMinWidth(1000);
         primaryStage.setMinHeight(750);

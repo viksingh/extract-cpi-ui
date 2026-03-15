@@ -11,6 +11,7 @@ import com.sakiv.cpi.extractor.service.CpiHttpClient.ApiCallRecord;
 import com.sakiv.cpi.extractor.service.ProfileManager;
 import com.sakiv.cpi.extractor.service.SnapshotLoader;
 import com.sakiv.cpi.extractor.util.DateFilterUtil;
+import com.sakiv.cpi.extractor.util.LocaleManager;
 import javafx.application.Platform;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.collections.FXCollections;
@@ -28,13 +29,16 @@ import org.slf4j.LoggerFactory;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.text.MessageFormat;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
+import java.util.ResourceBundle;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Function;
@@ -52,6 +56,12 @@ public class MainController {
     private List<RuntimeArtifact> origRuntimeArtifacts;
     private final Map<String, List<IntegrationFlow>> origPkgFlows = new HashMap<>();
     private final Map<String, List<ValueMapping>> origPkgVMs = new HashMap<>();
+
+    // i18n
+    private ResourceBundle bundle;
+
+    // Language selector
+    @FXML private ComboBox<String> languageCombo;
 
     // Connection Profiles (E9)
     private final ProfileManager profileManager = new ProfileManager();
@@ -133,13 +143,24 @@ public class MainController {
     // @author Vikas Singh | Created: 2026-02-07
     @FXML
     public void initialize() {
+        // i18n
+        bundle = LocaleManager.getBundle();
+
+        // Language selector
+        languageCombo.setItems(FXCollections.observableArrayList("English", "\u0420\u0443\u0441\u0441\u043a\u0438\u0439"));
+        languageCombo.setValue("ru".equals(LocaleManager.getCurrentLocale().getLanguage()) ? "\u0420\u0443\u0441\u0441\u043a\u0438\u0439" : "English");
+
         // Auth type combo
         authTypeCombo.setItems(FXCollections.observableArrayList("OAuth2", "Basic"));
         authTypeCombo.setValue("OAuth2");
 
         // Export format combo
-        exportFormatCombo.setItems(FXCollections.observableArrayList("Excel (.xlsx)", "CSV", "JSON", "All Formats"));
-        exportFormatCombo.setValue("Excel (.xlsx)");
+        exportFormatCombo.setItems(FXCollections.observableArrayList(
+                bundle.getString("export.format.excel"),
+                bundle.getString("export.format.csv"),
+                bundle.getString("export.format.json"),
+                bundle.getString("export.format.all")));
+        exportFormatCombo.setValue(bundle.getString("export.format.excel"));
 
         // Date filter combo
         dateFilterModeCombo.setItems(FXCollections.observableArrayList(DateFilterUtil.FilterMode.values()));
@@ -194,6 +215,33 @@ public class MainController {
     }
 
     // =========================================================================
+    // Language Selection
+    // =========================================================================
+
+    @FXML
+    private void onLanguageChanged() {
+        String selected = languageCombo.getValue();
+        if (selected == null) return;
+        Locale newLocale = "\u0420\u0443\u0441\u0441\u043a\u0438\u0439".equals(selected) ? Locale.forLanguageTag("ru") : Locale.ENGLISH;
+        if (!newLocale.equals(LocaleManager.getCurrentLocale())) {
+            LocaleManager.setLocale(newLocale);
+            Alert info = new Alert(Alert.AlertType.INFORMATION);
+            info.setTitle(bundle.getString("language.restart.title"));
+            info.setHeaderText(null);
+            info.setContentText(LocaleManager.getString("language.restart"));
+            info.showAndWait();
+        }
+    }
+
+    private String msg(String key) {
+        return bundle.getString(key);
+    }
+
+    private String msg(String key, Object... args) {
+        return MessageFormat.format(bundle.getString(key), args);
+    }
+
+    // =========================================================================
     // Connection Profiles (E9)
     // =========================================================================
 
@@ -220,7 +268,7 @@ public class MainController {
         for (ConnectionProfile p : profiles) {
             if (p.getName().equals(selected)) {
                 applyProfile(p);
-                appendLog("Profile loaded: " + selected);
+                appendLog(msg("profile.log.loaded", selected));
                 return;
             }
         }
@@ -246,13 +294,13 @@ public class MainController {
         TextInputDialog dialog = new TextInputDialog(
                 profileCombo.getValue() != null && !profileCombo.getValue().isEmpty()
                         ? profileCombo.getValue() : "");
-        dialog.setTitle("Save Connection Profile");
-        dialog.setHeaderText("Enter a name for this profile (e.g., DEV, QA, PROD):");
-        dialog.setContentText("Profile name:");
+        dialog.setTitle(msg("profile.save.dialog.title"));
+        dialog.setHeaderText(msg("profile.save.dialog.header"));
+        dialog.setContentText(msg("profile.save.dialog.content"));
 
         dialog.showAndWait().ifPresent(name -> {
             if (name.isBlank()) {
-                showError("Validation Error", "Profile name cannot be empty.");
+                showError(msg("validation.title"), msg("profile.validation.empty"));
                 return;
             }
             ConnectionProfile profile = new ConnectionProfile();
@@ -270,7 +318,7 @@ public class MainController {
             profileManager.addOrUpdateProfile(profile);
             loadProfileCombo();
             profileCombo.setValue(name.trim());
-            appendLog("Profile saved: " + name.trim());
+            appendLog(msg("profile.log.saved", name.trim()));
         });
     }
 
@@ -278,19 +326,19 @@ public class MainController {
     private void onDeleteProfile() {
         String selected = profileCombo.getValue();
         if (selected == null || selected.isEmpty()) {
-            showError("No Profile Selected", "Select a profile to delete.");
+            showError(msg("profile.noselection.title"), msg("profile.noselection.message"));
             return;
         }
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
-                "Delete profile '" + selected + "'?", ButtonType.YES, ButtonType.NO);
-        confirm.setTitle("Delete Profile");
+                msg("profile.delete.dialog.confirm", selected), ButtonType.YES, ButtonType.NO);
+        confirm.setTitle(msg("profile.delete.dialog.title"));
         confirm.setHeaderText(null);
         confirm.showAndWait().ifPresent(btn -> {
             if (btn == ButtonType.YES) {
                 profileManager.deleteProfile(selected);
                 loadProfileCombo();
                 profileCombo.setValue("");
-                appendLog("Profile deleted: " + selected);
+                appendLog(msg("profile.log.deleted", selected));
             }
         });
     }
@@ -489,7 +537,7 @@ public class MainController {
     @FXML
     private void onLoadConfig() {
         FileChooser fileChooser = new FileChooser();
-        fileChooser.setTitle("Load Configuration File");
+        fileChooser.setTitle(msg("fileChooser.loadConfig"));
         fileChooser.getExtensionFilters().add(
                 new FileChooser.ExtensionFilter("Properties Files", "*.properties"));
         fileChooser.setInitialDirectory(new File("."));
@@ -518,10 +566,10 @@ public class MainController {
             // Export settings
             String format = props.getProperty("export.format", "xlsx");
             switch (format.toLowerCase()) {
-                case "csv" -> exportFormatCombo.setValue("CSV");
-                case "json" -> exportFormatCombo.setValue("JSON");
-                case "all" -> exportFormatCombo.setValue("All Formats");
-                default -> exportFormatCombo.setValue("Excel (.xlsx)");
+                case "csv" -> exportFormatCombo.setValue(msg("export.format.csv"));
+                case "json" -> exportFormatCombo.setValue(msg("export.format.json"));
+                case "all" -> exportFormatCombo.setValue(msg("export.format.all"));
+                default -> exportFormatCombo.setValue(msg("export.format.excel"));
             }
 
             String loadedDir = props.getProperty("export.output.dir");
@@ -551,9 +599,9 @@ public class MainController {
             }
             onDateFilterToggled();
 
-            appendLog("Configuration loaded from: " + file.getAbsolutePath());
+            appendLog(msg("log.configLoaded", file.getAbsolutePath()));
         } catch (IOException e) {
-            showError("Failed to load config", e.getMessage());
+            showError(msg("error.loadConfig"), e.getMessage());
         }
     }
 
@@ -561,7 +609,7 @@ public class MainController {
     @FXML
     private void onSaveConfig() {
         FileChooser fileChooser = new FileChooser();
-        fileChooser.setTitle("Save Configuration File");
+        fileChooser.setTitle(msg("fileChooser.saveConfig"));
         fileChooser.getExtensionFilters().add(
                 new FileChooser.ExtensionFilter("Properties Files", "*.properties"));
         fileChooser.setInitialFileName("config.properties");
@@ -574,9 +622,9 @@ public class MainController {
             try (OutputStream os = new FileOutputStream(file)) {
                 props.store(os, "SAP CPI Artifact Extractor Configuration");
             }
-            appendLog("Configuration saved to: " + file.getAbsolutePath());
+            appendLog(msg("log.configSaved", file.getAbsolutePath()));
         } catch (IOException e) {
-            showError("Failed to save config", e.getMessage());
+            showError(msg("error.saveConfig"), e.getMessage());
         }
     }
 
@@ -584,7 +632,7 @@ public class MainController {
     @FXML
     private void onBrowseOutputDir() {
         DirectoryChooser chooser = new DirectoryChooser();
-        chooser.setTitle("Select Output Directory");
+        chooser.setTitle(msg("fileChooser.outputDir"));
         try {
             File initial = new File(outputDirField.getText());
             if (initial.isDirectory()) {
@@ -602,7 +650,7 @@ public class MainController {
     @FXML
     private void onLoadSnapshot() {
         FileChooser fileChooser = new FileChooser();
-        fileChooser.setTitle("Load CPI Snapshot File");
+        fileChooser.setTitle(msg("fileChooser.loadSnapshot"));
         fileChooser.getExtensionFilters().add(
                 new FileChooser.ExtensionFilter("JSON Snapshot Files", "*.json"));
         fileChooser.setInitialDirectory(new File("."));
@@ -614,7 +662,7 @@ public class MainController {
         loadSnapshotBtn.setDisable(true);
         progressBar.setVisible(true);
         progressBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
-        progressLabel.setText("Loading snapshot...");
+        progressLabel.setText(msg("progress.loadingSnapshot"));
         logTextArea.clear();
 
         Task<ExtractionResult> task = new Task<>() {
@@ -629,14 +677,14 @@ public class MainController {
             ExtractionResult result = task.getValue();
             Platform.runLater(() -> {
                 progressBar.setProgress(1.0);
-                progressLabel.setText("Snapshot loaded!");
+                progressLabel.setText(msg("progress.snapshotLoaded"));
                 extractButton.setDisable(false);
                 loadSnapshotBtn.setDisable(false);
                 saveOriginals(result);
                 populatePackageCheckboxes(result.getPackages());
                 applyDateFilter(result);
                 populateResults(result);
-                appendLog("Snapshot loaded from: " + file.getAbsolutePath());
+                appendLog(msg("log.snapshotLoaded", file.getAbsolutePath()));
             });
         });
 
@@ -644,11 +692,11 @@ public class MainController {
             Throwable ex = task.getException();
             Platform.runLater(() -> {
                 progressBar.setVisible(false);
-                progressLabel.setText("Snapshot load failed.");
+                progressLabel.setText(msg("progress.snapshotFailed"));
                 extractButton.setDisable(false);
                 loadSnapshotBtn.setDisable(false);
-                appendLog("ERROR: " + ex.getMessage());
-                showError("Snapshot Load Failed", ex.getMessage());
+                appendLog(msg("log.error", ex.getMessage()));
+                showError(msg("error.snapshotLoad"), ex.getMessage());
             });
         });
 
@@ -660,7 +708,7 @@ public class MainController {
     @FXML
     private void onFetchPackages() {
         if (tenantUrlField.getText().isBlank()) {
-            showError("Validation Error", "Tenant URL is required.");
+            showError(msg("validation.title"), msg("validation.tenantUrlRequired"));
             return;
         }
 
@@ -670,7 +718,7 @@ public class MainController {
         extractButton.setDisable(true);
         progressBar.setVisible(true);
         progressBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
-        progressLabel.setText("Fetching packages...");
+        progressLabel.setText(msg("progress.fetchingPackages"));
         logTextArea.clear();
 
         Task<List<IntegrationPackage>> task = new Task<>() {
@@ -702,10 +750,10 @@ public class MainController {
                 populatePackageCheckboxes(packages);
                 packageFilterPane.setExpanded(true);
                 progressBar.setProgress(1.0);
-                progressLabel.setText("Fetched " + packages.size() + " packages.");
+                progressLabel.setText(msg("progress.fetchedPackages", packages.size()));
                 fetchPackagesBtn.setDisable(false);
                 extractButton.setDisable(false);
-                appendLog("Fetched " + packages.size() + " packages. Select the ones to extract, then click 'Extract & Export'.");
+                appendLog(msg("log.fetchedPackages", packages.size()));
             });
         });
 
@@ -713,11 +761,11 @@ public class MainController {
             Throwable ex = task.getException();
             Platform.runLater(() -> {
                 progressBar.setVisible(false);
-                progressLabel.setText("Fetch failed.");
+                progressLabel.setText(msg("progress.fetchFailed"));
                 fetchPackagesBtn.setDisable(false);
                 extractButton.setDisable(false);
-                appendLog("ERROR: " + ex.getMessage());
-                showError("Fetch Packages Failed", ex.getMessage());
+                appendLog(msg("log.error", ex.getMessage()));
+                showError(msg("error.fetchPackages"), ex.getMessage());
             });
         });
 
@@ -731,7 +779,7 @@ public class MainController {
     private void onExtract() {
         // Validate required fields
         if (tenantUrlField.getText().isBlank()) {
-            showError("Validation Error", "Tenant URL is required.");
+            showError(msg("validation.title"), msg("validation.tenantUrlRequired"));
             return;
         }
 
@@ -765,7 +813,7 @@ public class MainController {
         extractButton.setDisable(true);
         progressBar.setVisible(true);
         progressBar.setProgress(0);
-        progressLabel.setText("Starting extraction...");
+        progressLabel.setText(msg("progress.startingExtraction"));
         logTextArea.clear();
 
         Task<ExtractionResult> task = new Task<>() {
@@ -807,7 +855,7 @@ public class MainController {
             progressBar.progressProperty().unbind();
             ExtractionResult result = task.getValue();
             Platform.runLater(() -> {
-                progressLabel.setText("Applying filter...");
+                progressLabel.setText(msg("progress.applyingFilter"));
                 // Save originals BEFORE filtering so re-apply works after user changes filter
                 saveOriginals(result);
                 populatePackageCheckboxes(result.getPackages());
@@ -824,10 +872,10 @@ public class MainController {
             Throwable ex = task.getException();
             Platform.runLater(() -> {
                 progressBar.setVisible(false);
-                progressLabel.setText("Extraction failed.");
+                progressLabel.setText(msg("progress.extractionFailed"));
                 extractButton.setDisable(false);
-                appendLog("ERROR: " + ex.getMessage());
-                showError("Extraction Failed", ex.getMessage());
+                appendLog(msg("log.error", ex.getMessage()));
+                showError(msg("error.extraction"), ex.getMessage());
             });
         });
 
@@ -949,25 +997,25 @@ public class MainController {
                 // E17: Auto-save snapshot
                 if (autoSnapshot) {
                     String snapshotPath = new JsonExporter().export(result, outputDir, prefix + "_snapshot");
-                    Platform.runLater(() -> appendLog("Auto-saved snapshot: " + snapshotPath));
+                    Platform.runLater(() -> appendLog(msg("log.autoSnapshot", snapshotPath)));
                 }
                 return null;
             }
         };
         exportTask.setOnSucceeded(e -> Platform.runLater(() -> {
             progressBar.setProgress(1.0);
-            progressLabel.setText("Extraction complete!");
+            progressLabel.setText(msg("progress.extractionComplete"));
             extractButton.setDisable(false);
-            appendLog("Extraction and export completed successfully.");
+            appendLog(msg("log.extractionComplete"));
         }));
         exportTask.setOnFailed(e -> {
             Throwable ex = exportTask.getException();
             Platform.runLater(() -> {
                 progressBar.setVisible(false);
-                progressLabel.setText("Export failed.");
+                progressLabel.setText(msg("progress.exportFailed"));
                 extractButton.setDisable(false);
-                appendLog("ERROR: " + ex.getMessage());
-                showError("Export Failed", ex.getMessage());
+                appendLog(msg("log.error", ex.getMessage()));
+                showError(msg("error.export"), ex.getMessage());
             });
         });
         Thread exportThread = new Thread(exportTask, "cpi-export-thread");
@@ -985,7 +1033,7 @@ public class MainController {
         String summary = result.getSummary();
         if (dateFilterEnabledCb.isSelected() && sinceDatePicker.getValue() != null) {
             summary += String.format(
-                    "Date Filter Active%n  Mode:  %s%n  Since: %s%n================================================%n",
+                    msg("dateFilter.summary"),
                     dateFilterModeCombo.getValue(), sinceDatePicker.getValue());
         }
         summaryTextArea.setText(summary);
@@ -1205,67 +1253,67 @@ public class MainController {
 
     // @author Vikas Singh | Created: 2026-02-07
     private void initPackagesTable() {
-        addColumn(packagesTable, "Package ID", "id");
-        addColumn(packagesTable, "Name", "name");
-        addColumn(packagesTable, "Description", "description");
-        addColumn(packagesTable, "Version", "version");
-        addColumn(packagesTable, "Vendor", "vendor");
-        addColumn(packagesTable, "Mode", "mode");
-        addColumn(packagesTable, "Created By", "createdBy");
-        addFormattedDateColumn(packagesTable, "Creation Date", IntegrationPackage::getCreationDate);
-        addColumn(packagesTable, "Modified By", "modifiedBy");
-        addFormattedDateColumn(packagesTable, "Modified Date", IntegrationPackage::getModifiedDate);
+        addColumn(packagesTable, msg("col.packageId"), "id");
+        addColumn(packagesTable, msg("col.name"), "name");
+        addColumn(packagesTable, msg("col.description"), "description");
+        addColumn(packagesTable, msg("col.version"), "version");
+        addColumn(packagesTable, msg("col.vendor"), "vendor");
+        addColumn(packagesTable, msg("col.mode"), "mode");
+        addColumn(packagesTable, msg("col.createdBy"), "createdBy");
+        addFormattedDateColumn(packagesTable, msg("col.creationDate"), IntegrationPackage::getCreationDate);
+        addColumn(packagesTable, msg("col.modifiedBy"), "modifiedBy");
+        addFormattedDateColumn(packagesTable, msg("col.modifiedDate"), IntegrationPackage::getModifiedDate);
         packagesTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_SUBSEQUENT_COLUMNS);
     }
 
     // @author Vikas Singh | Created: 2026-02-07
     private void initFlowsTable() {
-        addColumn(flowsTable, "Flow ID", "id");
-        addColumn(flowsTable, "Name", "name");
-        addColumn(flowsTable, "Package ID", "packageId");
-        addColumn(flowsTable, "Version", "version");
-        addColumn(flowsTable, "Sender", "sender");
-        addColumn(flowsTable, "Receiver", "receiver");
-        addColumn(flowsTable, "Runtime Status", "runtimeStatus");
-        addColumn(flowsTable, "Deployed Version", "deployedVersion");
-        addColumn(flowsTable, "Created By", "createdBy");
-        addFormattedDateColumn(flowsTable, "Created At", IntegrationFlow::getCreatedAt);
-        addColumn(flowsTable, "Modified By", "modifiedBy");
-        addFormattedDateColumn(flowsTable, "Modified At", IntegrationFlow::getModifiedAt);
+        addColumn(flowsTable, msg("col.flowId"), "id");
+        addColumn(flowsTable, msg("col.name"), "name");
+        addColumn(flowsTable, msg("col.packageIdRef"), "packageId");
+        addColumn(flowsTable, msg("col.version"), "version");
+        addColumn(flowsTable, msg("col.sender"), "sender");
+        addColumn(flowsTable, msg("col.receiver"), "receiver");
+        addColumn(flowsTable, msg("col.runtimeStatus"), "runtimeStatus");
+        addColumn(flowsTable, msg("col.deployedVersion"), "deployedVersion");
+        addColumn(flowsTable, msg("col.createdBy"), "createdBy");
+        addFormattedDateColumn(flowsTable, msg("col.createdAt"), IntegrationFlow::getCreatedAt);
+        addColumn(flowsTable, msg("col.modifiedBy"), "modifiedBy");
+        addFormattedDateColumn(flowsTable, msg("col.modifiedAt"), IntegrationFlow::getModifiedAt);
         flowsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_SUBSEQUENT_COLUMNS);
     }
 
     // @author Vikas Singh | Created: 2026-02-08
     private void initValueMapsTable() {
-        addColumn(valueMapsTable, "ID", "id");
-        addColumn(valueMapsTable, "Name", "name");
-        addColumn(valueMapsTable, "Description", "description");
-        addColumn(valueMapsTable, "Package ID", "packageId");
-        addColumn(valueMapsTable, "Version", "version");
-        addColumn(valueMapsTable, "Created By", "createdBy");
-        addFormattedDateColumn(valueMapsTable, "Created At", ValueMapping::getCreatedAt);
-        addColumn(valueMapsTable, "Modified By", "modifiedBy");
-        addFormattedDateColumn(valueMapsTable, "Modified At", ValueMapping::getModifiedAt);
-        addColumn(valueMapsTable, "Runtime Status", "runtimeStatus");
+        addColumn(valueMapsTable, msg("col.id"), "id");
+        addColumn(valueMapsTable, msg("col.name"), "name");
+        addColumn(valueMapsTable, msg("col.description"), "description");
+        addColumn(valueMapsTable, msg("col.packageIdRef"), "packageId");
+        addColumn(valueMapsTable, msg("col.version"), "version");
+        addColumn(valueMapsTable, msg("col.createdBy"), "createdBy");
+        addFormattedDateColumn(valueMapsTable, msg("col.createdAt"), ValueMapping::getCreatedAt);
+        addColumn(valueMapsTable, msg("col.modifiedBy"), "modifiedBy");
+        addFormattedDateColumn(valueMapsTable, msg("col.modifiedAt"), ValueMapping::getModifiedAt);
+        addColumn(valueMapsTable, msg("col.runtimeStatus"), "runtimeStatus");
         valueMapsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_SUBSEQUENT_COLUMNS);
     }
 
     // @author Vikas Singh | Created: 2026-02-08
     @SuppressWarnings("unchecked")
     private void initConfigsTable() {
-        TableColumn<ConfigRow, String> artifactIdCol = new TableColumn<>("Artifact ID");
+        TableColumn<ConfigRow, String> artifactIdCol = new TableColumn<>(msg("col.artifactId"));
         artifactIdCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().artifactId()));
 
-        TableColumn<ConfigRow, String> artifactNameCol = new TableColumn<>("Artifact Name");
+        TableColumn<ConfigRow, String> artifactNameCol = new TableColumn<>(msg("col.artifactName"));
         artifactNameCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().artifactName()));
 
-        TableColumn<ConfigRow, String> keyCol = new TableColumn<>("Parameter Key");
+        TableColumn<ConfigRow, String> keyCol = new TableColumn<>(msg("col.parameterKey"));
         keyCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().parameterKey()));
 
-        TableColumn<ConfigRow, String> valueCol = new TableColumn<>("Parameter Value");
+        TableColumn<ConfigRow, String> valueCol = new TableColumn<>(msg("col.parameterValue"));
         valueCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().parameterValue()));
 
-        TableColumn<ConfigRow, String> typeCol = new TableColumn<>("Data Type");
+        TableColumn<ConfigRow, String> typeCol = new TableColumn<>(msg("col.dataType"));
         typeCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().dataType()));
 
         configsTable.getColumns().addAll(artifactIdCol, artifactNameCol, keyCol, valueCol, typeCol);
@@ -1274,36 +1322,36 @@ public class MainController {
 
     // @author Vikas Singh | Created: 2026-02-08
     private void initRuntimeTable() {
-        addColumn(runtimeTable, "Artifact ID", "id");
-        addColumn(runtimeTable, "Name", "name");
-        addColumn(runtimeTable, "Type", "type");
-        addColumn(runtimeTable, "Version", "version");
-        addColumn(runtimeTable, "Status", "status");
-        addColumn(runtimeTable, "Deployed By", "deployedBy");
-        addFormattedDateColumn(runtimeTable, "Deployed On", RuntimeArtifact::getDeployedOn);
-        addColumn(runtimeTable, "Error Info", "errorInformation");
+        addColumn(runtimeTable, msg("col.artifactId"), "id");
+        addColumn(runtimeTable, msg("col.name"), "name");
+        addColumn(runtimeTable, msg("col.type"), "type");
+        addColumn(runtimeTable, msg("col.version"), "version");
+        addColumn(runtimeTable, msg("col.status"), "status");
+        addColumn(runtimeTable, msg("col.deployedBy"), "deployedBy");
+        addFormattedDateColumn(runtimeTable, msg("col.deployedOn"), RuntimeArtifact::getDeployedOn);
+        addColumn(runtimeTable, msg("col.errorInfo"), "errorInformation");
         runtimeTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_SUBSEQUENT_COLUMNS);
     }
 
     // @author Vikas Singh | Created: 2026-02-22
     @SuppressWarnings("unchecked")
     private void initAdaptersTable() {
-        TableColumn<AdapterRow, String> flowIdCol = new TableColumn<>("Flow ID");
+        TableColumn<AdapterRow, String> flowIdCol = new TableColumn<>(msg("col.flowId"));
         flowIdCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().flowId()));
 
-        TableColumn<AdapterRow, String> flowNameCol = new TableColumn<>("Flow Name");
+        TableColumn<AdapterRow, String> flowNameCol = new TableColumn<>(msg("col.flowName"));
         flowNameCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().flowName()));
 
-        TableColumn<AdapterRow, String> typeCol = new TableColumn<>("Adapter Type");
+        TableColumn<AdapterRow, String> typeCol = new TableColumn<>(msg("col.adapterType"));
         typeCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().adapterType()));
 
-        TableColumn<AdapterRow, String> dirCol = new TableColumn<>("Direction");
+        TableColumn<AdapterRow, String> dirCol = new TableColumn<>(msg("col.direction"));
         dirCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().direction()));
 
-        TableColumn<AdapterRow, String> addressCol = new TableColumn<>("Address");
+        TableColumn<AdapterRow, String> addressCol = new TableColumn<>(msg("col.address"));
         addressCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().address()));
 
-        TableColumn<AdapterRow, String> protocolCol = new TableColumn<>("Transport Protocol");
+        TableColumn<AdapterRow, String> protocolCol = new TableColumn<>(msg("col.transportProtocol"));
         protocolCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().transportProtocol()));
 
         adaptersTable.getColumns().addAll(flowIdCol, flowNameCol, typeCol, dirCol, addressCol, protocolCol);
@@ -1312,41 +1360,41 @@ public class MainController {
 
     @SuppressWarnings("unchecked")
     private void initIflowUsageTable() {
-        TableColumn<IFlowUsageRow, String> pkgCol = new TableColumn<>("Package");
+        TableColumn<IFlowUsageRow, String> pkgCol = new TableColumn<>(msg("col.package"));
         pkgCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().packageName()));
         pkgCol.setPrefWidth(200);
 
-        TableColumn<IFlowUsageRow, String> nameCol = new TableColumn<>("iFlow Name");
+        TableColumn<IFlowUsageRow, String> nameCol = new TableColumn<>(msg("col.iflowName"));
         nameCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().flowName()));
         nameCol.setPrefWidth(250);
 
-        TableColumn<IFlowUsageRow, String> totalCol = new TableColumn<>("Total");
+        TableColumn<IFlowUsageRow, String> totalCol = new TableColumn<>(msg("col.total"));
         totalCol.setCellValueFactory(cd -> new SimpleStringProperty(String.valueOf(cd.getValue().total())));
 
-        TableColumn<IFlowUsageRow, String> completedCol = new TableColumn<>("Completed");
+        TableColumn<IFlowUsageRow, String> completedCol = new TableColumn<>(msg("col.completed"));
         completedCol.setCellValueFactory(cd -> new SimpleStringProperty(String.valueOf(cd.getValue().completed())));
 
-        TableColumn<IFlowUsageRow, String> failedCol = new TableColumn<>("Failed");
+        TableColumn<IFlowUsageRow, String> failedCol = new TableColumn<>(msg("col.failed"));
         failedCol.setCellValueFactory(cd -> new SimpleStringProperty(String.valueOf(cd.getValue().failed())));
 
-        TableColumn<IFlowUsageRow, String> retryCol = new TableColumn<>("Retry");
+        TableColumn<IFlowUsageRow, String> retryCol = new TableColumn<>(msg("col.retry"));
         retryCol.setCellValueFactory(cd -> new SimpleStringProperty(String.valueOf(cd.getValue().retry())));
 
-        TableColumn<IFlowUsageRow, String> escalatedCol = new TableColumn<>("Escalated");
+        TableColumn<IFlowUsageRow, String> escalatedCol = new TableColumn<>(msg("col.escalated"));
         escalatedCol.setCellValueFactory(cd -> new SimpleStringProperty(String.valueOf(cd.getValue().escalated())));
 
-        TableColumn<IFlowUsageRow, String> lastExecCol = new TableColumn<>("Last Execution");
+        TableColumn<IFlowUsageRow, String> lastExecCol = new TableColumn<>(msg("col.lastExecution"));
         lastExecCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().lastExecution()));
         lastExecCol.setPrefWidth(180);
 
-        TableColumn<IFlowUsageRow, String> lastStatusCol = new TableColumn<>("Last Status");
+        TableColumn<IFlowUsageRow, String> lastStatusCol = new TableColumn<>(msg("col.lastStatus"));
         lastStatusCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().lastStatus()));
 
         // E2: Runtime Status and Deployed Status columns
-        TableColumn<IFlowUsageRow, String> runtimeStatusCol = new TableColumn<>("Runtime Status");
+        TableColumn<IFlowUsageRow, String> runtimeStatusCol = new TableColumn<>(msg("col.runtimeStatus"));
         runtimeStatusCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().runtimeStatus()));
 
-        TableColumn<IFlowUsageRow, String> deployedStatusCol = new TableColumn<>("Deployed Status");
+        TableColumn<IFlowUsageRow, String> deployedStatusCol = new TableColumn<>(msg("col.deployedStatus"));
         deployedStatusCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().deployedStatus()));
         deployedStatusCol.setPrefWidth(140);
 
@@ -1358,32 +1406,32 @@ public class MainController {
     // E4: Credentials table
     @SuppressWarnings("unchecked")
     private void initCredentialsTable() {
-        TableColumn<CredentialRow, String> pkgCol = new TableColumn<>("Package");
+        TableColumn<CredentialRow, String> pkgCol = new TableColumn<>(msg("col.package"));
         pkgCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().packageName()));
 
-        TableColumn<CredentialRow, String> flowCol = new TableColumn<>("iFlow");
+        TableColumn<CredentialRow, String> flowCol = new TableColumn<>(msg("col.iflow"));
         flowCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().flowName()));
         flowCol.setPrefWidth(200);
 
-        TableColumn<CredentialRow, String> adapterCol = new TableColumn<>("Adapter Type");
+        TableColumn<CredentialRow, String> adapterCol = new TableColumn<>(msg("col.adapterType"));
         adapterCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().adapterType()));
 
-        TableColumn<CredentialRow, String> dirCol = new TableColumn<>("Direction");
+        TableColumn<CredentialRow, String> dirCol = new TableColumn<>(msg("col.direction"));
         dirCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().direction()));
 
-        TableColumn<CredentialRow, String> credNameCol = new TableColumn<>("Credential Name");
+        TableColumn<CredentialRow, String> credNameCol = new TableColumn<>(msg("col.credentialName"));
         credNameCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().credentialName()));
         credNameCol.setPrefWidth(200);
 
-        TableColumn<CredentialRow, String> credTypeCol = new TableColumn<>("Credential Type");
+        TableColumn<CredentialRow, String> credTypeCol = new TableColumn<>(msg("col.credentialType"));
         credTypeCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().credentialType()));
         credTypeCol.setPrefWidth(140);
 
-        TableColumn<CredentialRow, String> propKeyCol = new TableColumn<>("Property Key");
+        TableColumn<CredentialRow, String> propKeyCol = new TableColumn<>(msg("col.propertyKey"));
         propKeyCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().propertyKey()));
         propKeyCol.setPrefWidth(180);
 
-        TableColumn<CredentialRow, String> contextCol = new TableColumn<>("Context");
+        TableColumn<CredentialRow, String> contextCol = new TableColumn<>(msg("col.context"));
         contextCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().context()));
 
         credentialsTable.getColumns().addAll(pkgCol, flowCol, adapterCol, dirCol,
@@ -1393,30 +1441,30 @@ public class MainController {
 
     @SuppressWarnings("unchecked")
     private void initEccEndpointsTable() {
-        TableColumn<EccEndpointRow, String> pkgCol = new TableColumn<>("Package");
+        TableColumn<EccEndpointRow, String> pkgCol = new TableColumn<>(msg("col.package"));
         pkgCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().packageName()));
 
-        TableColumn<EccEndpointRow, String> flowCol = new TableColumn<>("iFlow");
+        TableColumn<EccEndpointRow, String> flowCol = new TableColumn<>(msg("col.iflow"));
         flowCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().flowName()));
         flowCol.setPrefWidth(200);
 
-        TableColumn<EccEndpointRow, String> dirCol = new TableColumn<>("Direction");
+        TableColumn<EccEndpointRow, String> dirCol = new TableColumn<>(msg("col.direction"));
         dirCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().direction()));
 
-        TableColumn<EccEndpointRow, String> typeCol = new TableColumn<>("Adapter Type");
+        TableColumn<EccEndpointRow, String> typeCol = new TableColumn<>(msg("col.adapterType"));
         typeCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().adapterType()));
 
-        TableColumn<EccEndpointRow, String> protoCol = new TableColumn<>("Transport");
+        TableColumn<EccEndpointRow, String> protoCol = new TableColumn<>(msg("col.transport"));
         protoCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().transportProtocol()));
 
-        TableColumn<EccEndpointRow, String> msgProtoCol = new TableColumn<>("Message Protocol");
+        TableColumn<EccEndpointRow, String> msgProtoCol = new TableColumn<>(msg("col.messageProtocol"));
         msgProtoCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().messageProtocol()));
 
-        TableColumn<EccEndpointRow, String> addrCol = new TableColumn<>("Address");
+        TableColumn<EccEndpointRow, String> addrCol = new TableColumn<>(msg("col.address"));
         addrCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().address()));
         addrCol.setPrefWidth(250);
 
-        TableColumn<EccEndpointRow, String> catCol = new TableColumn<>("Category");
+        TableColumn<EccEndpointRow, String> catCol = new TableColumn<>(msg("col.category"));
         catCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().category()));
         catCol.setPrefWidth(180);
 
@@ -1426,25 +1474,25 @@ public class MainController {
 
     @SuppressWarnings("unchecked")
     private void initFlowChainsTable() {
-        TableColumn<FlowChainRow, String> typeCol = new TableColumn<>("Chain Type");
+        TableColumn<FlowChainRow, String> typeCol = new TableColumn<>(msg("col.chainType"));
         typeCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().chainType()));
 
-        TableColumn<FlowChainRow, String> queueCol = new TableColumn<>("Queue / Address");
+        TableColumn<FlowChainRow, String> queueCol = new TableColumn<>(msg("col.queueAddress"));
         queueCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().queueOrAddress()));
         queueCol.setPrefWidth(250);
 
-        TableColumn<FlowChainRow, String> senderFlowCol = new TableColumn<>("Sender iFlow");
+        TableColumn<FlowChainRow, String> senderFlowCol = new TableColumn<>(msg("col.senderIflow"));
         senderFlowCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().senderFlow()));
         senderFlowCol.setPrefWidth(200);
 
-        TableColumn<FlowChainRow, String> senderPkgCol = new TableColumn<>("Sender Package");
+        TableColumn<FlowChainRow, String> senderPkgCol = new TableColumn<>(msg("col.senderPackage"));
         senderPkgCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().senderPackage()));
 
-        TableColumn<FlowChainRow, String> recFlowCol = new TableColumn<>("Receiver iFlow");
+        TableColumn<FlowChainRow, String> recFlowCol = new TableColumn<>(msg("col.receiverIflow"));
         recFlowCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().receiverFlow()));
         recFlowCol.setPrefWidth(200);
 
-        TableColumn<FlowChainRow, String> recPkgCol = new TableColumn<>("Receiver Package");
+        TableColumn<FlowChainRow, String> recPkgCol = new TableColumn<>(msg("col.receiverPackage"));
         recPkgCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().receiverPackage()));
 
         flowChainsTable.getColumns().addAll(typeCol, queueCol, senderFlowCol, senderPkgCol, recFlowCol, recPkgCol);
@@ -1453,17 +1501,17 @@ public class MainController {
 
     @SuppressWarnings("unchecked")
     private void initApiCallsTable() {
-        TableColumn<ApiCallRow, String> methodCol = new TableColumn<>("Method");
+        TableColumn<ApiCallRow, String> methodCol = new TableColumn<>(msg("col.method"));
         methodCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().method()));
 
-        TableColumn<ApiCallRow, String> pathCol = new TableColumn<>("Path");
+        TableColumn<ApiCallRow, String> pathCol = new TableColumn<>(msg("col.path"));
         pathCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().path()));
         pathCol.setPrefWidth(400);
 
-        TableColumn<ApiCallRow, String> statusCol = new TableColumn<>("Status Code");
+        TableColumn<ApiCallRow, String> statusCol = new TableColumn<>(msg("col.statusCode"));
         statusCol.setCellValueFactory(cd -> new SimpleStringProperty(String.valueOf(cd.getValue().statusCode())));
 
-        TableColumn<ApiCallRow, String> durationCol = new TableColumn<>("Duration");
+        TableColumn<ApiCallRow, String> durationCol = new TableColumn<>(msg("col.duration"));
         durationCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().duration()));
 
         apiCallsTable.getColumns().addAll(methodCol, pathCol, statusCol, durationCol);
@@ -1537,12 +1585,10 @@ public class MainController {
     private String getExportFormat() {
         String selected = exportFormatCombo.getValue();
         if (selected == null) return "xlsx";
-        return switch (selected) {
-            case "CSV" -> "csv";
-            case "JSON" -> "json";
-            case "All Formats" -> "all";
-            default -> "xlsx";
-        };
+        if (selected.equals(msg("export.format.csv"))) return "csv";
+        if (selected.equals(msg("export.format.json"))) return "json";
+        if (selected.equals(msg("export.format.all"))) return "all";
+        return "xlsx";
     }
 
     // @author Vikas Singh | Created: 2026-02-08

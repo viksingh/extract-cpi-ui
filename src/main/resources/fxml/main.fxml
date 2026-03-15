@@ -11,20 +11,25 @@
 
     <padding><Insets top="15" right="15" bottom="15" left="15"/></padding>
 
-    <!-- Title -->
-    <Label text="SAP CPI Artifact Extractor" styleClass="app-title"/>
+    <!-- Title + Language Selector -->
+    <HBox spacing="10" alignment="CENTER_LEFT">
+        <Label text="%app.title" styleClass="app-title"/>
+        <Region HBox.hgrow="ALWAYS"/>
+        <Label text="%language.label"/>
+        <ComboBox fx:id="languageCombo" onAction="#onLanguageChanged"/>
+    </HBox>
 
     <!-- Connection Profiles -->
     <HBox spacing="10" alignment="CENTER_LEFT">
-        <Label text="Profile:"/>
-        <ComboBox fx:id="profileCombo" promptText="(no profile)" prefWidth="200"
+        <Label text="%profile.label"/>
+        <ComboBox fx:id="profileCombo" promptText="%profile.prompt" prefWidth="200"
                   onAction="#onProfileSelected"/>
-        <Button text="Save Profile" onAction="#onSaveProfile" styleClass="action-btn"/>
-        <Button text="Delete Profile" onAction="#onDeleteProfile" styleClass="action-btn"/>
+        <Button text="%profile.save" onAction="#onSaveProfile" styleClass="action-btn"/>
+        <Button text="%profile.delete" onAction="#onDeleteProfile" styleClass="action-btn"/>
     </HBox>
 
     <!-- Connection Settings -->
-    <TitledPane text="Connection Settings" collapsible="false" styleClass="section-pane">
+    <TitledPane text="%connection.title" collapsible="false" styleClass="section-pane">
         <GridPane hgap="10" vgap="8">
             <padding><Insets top="10" right="10" bottom="10" left="10"/></padding>
 
@@ -35,32 +40,32 @@
                 <ColumnConstraints hgrow="ALWAYS" minWidth="200"/>
             </columnConstraints>
 
-            <Label text="Tenant URL:" GridPane.columnIndex="0" GridPane.rowIndex="0"/>
+            <Label text="%connection.tenantUrl" GridPane.columnIndex="0" GridPane.rowIndex="0"/>
             <TextField fx:id="tenantUrlField" promptText="https://tenant.it-cpiXXX.cfapps.region.hana.ondemand.com"
                        GridPane.columnIndex="1" GridPane.rowIndex="0" GridPane.columnSpan="3"/>
 
-            <Label text="Auth Type:" GridPane.columnIndex="0" GridPane.rowIndex="1"/>
+            <Label text="%connection.authType" GridPane.columnIndex="0" GridPane.rowIndex="1"/>
             <ComboBox fx:id="authTypeCombo" GridPane.columnIndex="1" GridPane.rowIndex="1"
                       onAction="#onAuthTypeChanged"/>
 
             <!-- OAuth2 fields -->
-            <Label fx:id="oauthTokenUrlLabel" text="OAuth2 Token URL:" GridPane.columnIndex="0" GridPane.rowIndex="2"/>
+            <Label fx:id="oauthTokenUrlLabel" text="%connection.oauthTokenUrl" GridPane.columnIndex="0" GridPane.rowIndex="2"/>
             <TextField fx:id="oauthTokenUrlField" promptText="https://subdomain.authentication.region.hana.ondemand.com/oauth/token"
                        GridPane.columnIndex="1" GridPane.rowIndex="2" GridPane.columnSpan="3"/>
 
-            <Label fx:id="oauthClientIdLabel" text="Client ID:" GridPane.columnIndex="0" GridPane.rowIndex="3"/>
+            <Label fx:id="oauthClientIdLabel" text="%connection.clientId" GridPane.columnIndex="0" GridPane.rowIndex="3"/>
             <TextField fx:id="oauthClientIdField" GridPane.columnIndex="1" GridPane.rowIndex="3"/>
 
-            <Label fx:id="oauthClientSecretLabel" text="Client Secret:" GridPane.columnIndex="2" GridPane.rowIndex="3"/>
+            <Label fx:id="oauthClientSecretLabel" text="%connection.clientSecret" GridPane.columnIndex="2" GridPane.rowIndex="3"/>
             <PasswordField fx:id="oauthClientSecretField" GridPane.columnIndex="3" GridPane.rowIndex="3"/>
 
             <!-- Basic auth fields (hidden by default) -->
-            <Label fx:id="basicUsernameLabel" text="Username:" GridPane.columnIndex="0" GridPane.rowIndex="4"
+            <Label fx:id="basicUsernameLabel" text="%connection.username" GridPane.columnIndex="0" GridPane.rowIndex="4"
                    visible="false" managed="false"/>
             <TextField fx:id="basicUsernameField" GridPane.columnIndex="1" GridPane.rowIndex="4"
                        visible="false" managed="false"/>
 
-            <Label fx:id="basicPasswordLabel" text="Password:" GridPane.columnIndex="2" GridPane.rowIndex="4"
+            <Label fx:id="basicPasswordLabel" text="%connection.password" GridPane.columnIndex="2" GridPane.rowIndex="4"
                    visible="false" managed="false"/>
             <PasswordField fx:id="basicPasswordField" GridPane.columnIndex="3" GridPane.rowIndex="4"
                            visible="false" managed="false"/>
@@ -69,23 +74,23 @@
 
     <!-- Extraction Options + Export Settings side by side -->
     <HBox spacing="10">
-        <TitledPane text="Extraction Options" collapsible="false" styleClass="section-pane"
+        <TitledPane text="%extraction.title" collapsible="false" styleClass="section-pane"
                     HBox.hgrow="ALWAYS">
             <VBox spacing="6">
                 <padding><Insets top="8" right="10" bottom="8" left="10"/></padding>
-                <CheckBox fx:id="extractPackagesCb" text="Packages" selected="true" disable="true"/>
-                <CheckBox fx:id="extractFlowsCb" text="Integration Flows" selected="true" disable="true"/>
-                <CheckBox fx:id="extractRuntimeCb" text="Runtime Status" selected="true" disable="true"/>
-                <CheckBox fx:id="extractMessageLogsCb" text="Message Processing Logs (Usage)" selected="true" disable="true"/>
+                <CheckBox fx:id="extractPackagesCb" text="%extraction.packages" selected="true" disable="true"/>
+                <CheckBox fx:id="extractFlowsCb" text="%extraction.flows" selected="true" disable="true"/>
+                <CheckBox fx:id="extractRuntimeCb" text="%extraction.runtime" selected="true" disable="true"/>
+                <CheckBox fx:id="extractMessageLogsCb" text="%extraction.messageLogs" selected="true" disable="true"/>
                 <Separator/>
-                <CheckBox fx:id="deepExtractionCb" text="Enable Deep Extraction" selected="false" onAction="#onDeepExtractionToggled"/>
+                <CheckBox fx:id="deepExtractionCb" text="%extraction.deepExtraction" selected="false" onAction="#onDeepExtractionToggled"/>
                 <VBox fx:id="deepExtractionControls" spacing="6" visible="false" managed="false">
                     <padding><Insets left="20"/></padding>
-                    <CheckBox fx:id="extractValueMappingsCb" text="Value Mappings" selected="true"/>
-                    <CheckBox fx:id="extractConfigurationsCb" text="Configurations" selected="true"/>
+                    <CheckBox fx:id="extractValueMappingsCb" text="%extraction.valueMappings" selected="true"/>
+                    <CheckBox fx:id="extractConfigurationsCb" text="%extraction.configurations" selected="true"/>
                 </VBox>
                 <Separator/>
-                <CheckBox fx:id="dateFilterEnabledCb" text="Enable Date Filter" onAction="#onDateFilterToggled"/>
+                <CheckBox fx:id="dateFilterEnabledCb" text="%extraction.dateFilter" onAction="#onDateFilterToggled"/>
                 <HBox fx:id="dateFilterControls" spacing="8" alignment="CENTER_LEFT"
                       visible="false" managed="false">
                     <padding><Insets left="20"/></padding>
@@ -96,7 +101,7 @@
             </VBox>
         </TitledPane>
 
-        <TitledPane text="Export Settings" collapsible="false" styleClass="section-pane"
+        <TitledPane text="%export.title" collapsible="false" styleClass="section-pane"
                     HBox.hgrow="ALWAYS">
             <GridPane hgap="10" vgap="8">
                 <padding><Insets top="8" right="10" bottom="8" left="10"/></padding>
@@ -106,34 +111,34 @@
                     <ColumnConstraints minWidth="30"/>
                 </columnConstraints>
 
-                <Label text="Format:" GridPane.columnIndex="0" GridPane.rowIndex="0"/>
+                <Label text="%export.format" GridPane.columnIndex="0" GridPane.rowIndex="0"/>
                 <ComboBox fx:id="exportFormatCombo" GridPane.columnIndex="1" GridPane.rowIndex="0"
                           GridPane.columnSpan="2" maxWidth="Infinity"/>
 
-                <Label text="Output:" GridPane.columnIndex="0" GridPane.rowIndex="1"/>
+                <Label text="%export.output" GridPane.columnIndex="0" GridPane.rowIndex="1"/>
                 <TextField fx:id="outputDirField" text="C:\temp\CPI Extracts" GridPane.columnIndex="1" GridPane.rowIndex="1"/>
                 <Button text="..." onAction="#onBrowseOutputDir" GridPane.columnIndex="2" GridPane.rowIndex="1"
                         styleClass="browse-btn"/>
 
-                <Label text="Prefix:" GridPane.columnIndex="0" GridPane.rowIndex="2"/>
+                <Label text="%export.prefix" GridPane.columnIndex="0" GridPane.rowIndex="2"/>
                 <TextField fx:id="filenamePrefixField" text="cpi_artifacts"
                            GridPane.columnIndex="1" GridPane.rowIndex="2" GridPane.columnSpan="2"/>
 
-                <CheckBox fx:id="autoSnapshotCb" text="Auto-save snapshot" selected="true"
+                <CheckBox fx:id="autoSnapshotCb" text="%export.autoSnapshot" selected="true"
                           GridPane.columnIndex="0" GridPane.rowIndex="3" GridPane.columnSpan="3"/>
             </GridPane>
         </TitledPane>
     </HBox>
 
     <!-- Package Filter (populated dynamically after fetch/extraction) -->
-    <TitledPane fx:id="packageFilterPane" text="Package Filter" collapsible="true" expanded="false" styleClass="section-pane">
+    <TitledPane fx:id="packageFilterPane" text="%packageFilter.title" collapsible="true" expanded="false" styleClass="section-pane">
         <VBox spacing="6">
             <padding><Insets top="8" right="10" bottom="8" left="10"/></padding>
             <HBox spacing="12" alignment="CENTER_LEFT">
-                <CheckBox fx:id="selectAllPackagesCb" text="Select All" selected="true"/>
+                <CheckBox fx:id="selectAllPackagesCb" text="%packageFilter.selectAll" selected="true"/>
                 <Region HBox.hgrow="ALWAYS"/>
-                <Label text="Search:"/>
-                <TextField fx:id="packageSearchField" promptText="Filter packages..."
+                <Label text="%packageFilter.search"/>
+                <TextField fx:id="packageSearchField" promptText="%packageFilter.searchPrompt"
                            prefWidth="250"/>
             </HBox>
             <Separator/>
@@ -148,54 +153,54 @@
 
     <!-- Action Buttons -->
     <HBox spacing="10" alignment="CENTER_LEFT">
-        <Button text="Load Config File" onAction="#onLoadConfig" styleClass="action-btn"/>
-        <Button text="Save Config" onAction="#onSaveConfig" styleClass="action-btn"/>
+        <Button text="%action.loadConfig" onAction="#onLoadConfig" styleClass="action-btn"/>
+        <Button text="%action.saveConfig" onAction="#onSaveConfig" styleClass="action-btn"/>
         <Region HBox.hgrow="ALWAYS"/>
-        <Button fx:id="loadSnapshotBtn" text="Load Snapshot..." onAction="#onLoadSnapshot" styleClass="action-btn"/>
-        <Button fx:id="fetchPackagesBtn" text="Fetch Packages" onAction="#onFetchPackages"
+        <Button fx:id="loadSnapshotBtn" text="%action.loadSnapshot" onAction="#onLoadSnapshot" styleClass="action-btn"/>
+        <Button fx:id="fetchPackagesBtn" text="%action.fetchPackages" onAction="#onFetchPackages"
                 styleClass="action-btn"/>
-        <Button fx:id="extractButton" text="Extract &amp; Export" onAction="#onExtract"
+        <Button fx:id="extractButton" text="%action.extractExport" onAction="#onExtract"
                 styleClass="primary-btn"/>
     </HBox>
 
     <!-- Results TabPane -->
     <TabPane fx:id="resultsTabPane" VBox.vgrow="ALWAYS" tabClosingPolicy="UNAVAILABLE"
              styleClass="results-tabs">
-        <Tab text="Summary">
+        <Tab text="%tab.summary">
             <TextArea fx:id="summaryTextArea" editable="false" wrapText="true"
                       styleClass="summary-area"/>
         </Tab>
-        <Tab text="Packages">
+        <Tab text="%tab.packages">
             <TableView fx:id="packagesTable" styleClass="data-table"/>
         </Tab>
-        <Tab text="Flows">
+        <Tab text="%tab.flows">
             <TableView fx:id="flowsTable" styleClass="data-table"/>
         </Tab>
-        <Tab text="Value Maps">
+        <Tab text="%tab.valueMaps">
             <TableView fx:id="valueMapsTable" styleClass="data-table"/>
         </Tab>
-        <Tab text="Configs">
+        <Tab text="%tab.configs">
             <TableView fx:id="configsTable" styleClass="data-table"/>
         </Tab>
-        <Tab text="Runtime">
+        <Tab text="%tab.runtime">
             <TableView fx:id="runtimeTable" styleClass="data-table"/>
         </Tab>
-        <Tab text="iFlow Adapters">
+        <Tab text="%tab.adapters">
             <TableView fx:id="adaptersTable" styleClass="data-table"/>
         </Tab>
-        <Tab text="iFlow Usage">
+        <Tab text="%tab.usage">
             <TableView fx:id="iflowUsageTable" styleClass="data-table"/>
         </Tab>
-        <Tab text="Credentials">
+        <Tab text="%tab.credentials">
             <TableView fx:id="credentialsTable" styleClass="data-table"/>
         </Tab>
-        <Tab text="ECC Endpoints">
+        <Tab text="%tab.eccEndpoints">
             <TableView fx:id="eccEndpointsTable" styleClass="data-table"/>
         </Tab>
-        <Tab text="Flow Chains">
+        <Tab text="%tab.flowChains">
             <TableView fx:id="flowChainsTable" styleClass="data-table"/>
         </Tab>
-        <Tab text="API Calls">
+        <Tab text="%tab.apiCalls">
             <TableView fx:id="apiCallsTable" styleClass="data-table"/>
         </Tab>
     </TabPane>
@@ -203,7 +208,7 @@
     <!-- Log Area + Progress -->
     <VBox spacing="4" styleClass="log-section">
         <HBox spacing="10" alignment="CENTER_LEFT">
-            <Label text="Log:" styleClass="log-label"/>
+            <Label text="%log.label" styleClass="log-label"/>
             <ProgressBar fx:id="progressBar" prefWidth="300" progress="0" visible="false"/>
             <Label fx:id="progressLabel" text="" styleClass="progress-label"/>
         </HBox>
