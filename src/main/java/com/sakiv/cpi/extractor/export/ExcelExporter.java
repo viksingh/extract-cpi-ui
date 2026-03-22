@@ -13,11 +13,15 @@ import java.io.FileOutputStream;
 
 import com.sakiv.cpi.extractor.service.CpiHttpClient;
 
+import com.sakiv.cpi.extractor.service.DependencyAnalysisService;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Exports CPI extraction results to Excel (.xlsx) format
@@ -89,6 +93,11 @@ public class ExcelExporter {
             // Sheet: Flow Chains (JMS / ProcessDirect)
             if (!bundledFlows.isEmpty()) {
                 createFlowChainsSheet(workbook, headerStyle, result);
+            }
+
+            // Sheet: Dependencies (Package + Flow level)
+            if (!bundledFlows.isEmpty()) {
+                createDependencySheets(workbook, headerStyle, result);
             }
 
             // Sheet: Credentials / Security Materials (E4)
@@ -714,6 +723,134 @@ public class ExcelExporter {
     }
 
     // =========================================================================
+    // Dependency Sheets (Package + Flow level)
+    // =========================================================================
+
+    private void createDependencySheets(Workbook wb, CellStyle headerStyle, ExtractionResult result) {
+        DependencyAnalysisService analysisService = new DependencyAnalysisService();
+        DependencyGraph graph = analysisService.analyze(result, null);
+
+        if (graph.getDependencies().isEmpty()) return;
+
+        // Build packageId -> packageName mapping
+        Map<String, String> pkgIdToName = new LinkedHashMap<>();
+        for (IntegrationPackage pkg : result.getPackages()) {
+            pkgIdToName.put(pkg.getId(), pkg.getName() != null ? pkg.getName() : pkg.getId());
+        }
+
+        // Build MPL usage lookup: flowId/flowName -> last execution date
+        Map<String, String> flowLastUsed = new LinkedHashMap<>();
+        Map<String, String> flowRuntimeStatus = new LinkedHashMap<>();
+        if (result.getMessageProcessingLogs() != null) {
+            for (MessageProcessingLog mpl : result.getMessageProcessingLogs()) {
+                String name = mpl.getIntegrationFlowName();
+                if (name == null || name.isBlank()) continue;
+                String logEnd = mpl.getLogEnd() != null ? mpl.getLogEnd() : "";
+                String existing = flowLastUsed.getOrDefault(name, "");
+                if (logEnd.compareTo(existing) > 0) flowLastUsed.put(name, logEnd);
+            }
+        }
+        for (IntegrationFlow flow : result.getAllFlows()) {
+            String rt = flow.getRuntimeStatus() != null ? flow.getRuntimeStatus() : "UNKNOWN";
+            if (flow.getId() != null) flowRuntimeStatus.put(flow.getId(), rt);
+            if (flow.getName() != null) flowRuntimeStatus.put(flow.getName(), rt);
+            if (flow.getId() != null && flow.getName() != null) {
+                String byId = flowLastUsed.get(flow.getId());
+                String byName = flowLastUsed.get(flow.getName());
+                String best = "";
+                if (byId != null) best = byId;
+                if (byName != null && byName.compareTo(best) > 0) best = byName;
+                if (!best.isEmpty()) {
+                    flowLastUsed.put(flow.getId(), best);
+                    flowLastUsed.put(flow.getName(), best);
+                }
+            }
+        }
+
+        // Sheet: Package Dependencies
+        {
+            Sheet sheet = wb.createSheet("Package Dependencies");
+            String[] headers = {"Source Package", "Target Package", "Dependency Types",
+                    "# Links", "Cross-Package", "Source Last Used", "Target Last Used",
+                    "Link Status", "Flow Links"};
+            createHeaderRow(sheet, headerStyle, headers);
+
+            List<PackageDependency> pkgDeps = graph.getPackageDependencies(pkgIdToName);
+            int rowNum = 1;
+            for (PackageDependency pd : pkgDeps) {
+                Row row = sheet.createRow(rowNum++);
+                row.createCell(0).setCellValue(pd.getSourcePackageName());
+                row.createCell(1).setCellValue(pd.getTargetPackageName());
+                row.createCell(2).setCellValue(pd.getDependencyTypesDisplay());
+                row.createCell(3).setCellValue(pd.getStrength());
+                row.createCell(4).setCellValue(pd.isCrossPackage() ? "Yes" : "No");
+
+                StringBuilder flowLinks = new StringBuilder();
+                String srcLatest = "";
+                String tgtLatest = "";
+                boolean anySrcActive = false;
+                boolean anyTgtActive = false;
+
+                for (Dependency dep : pd.getFlowDependencies()) {
+                    if (flowLinks.length() > 0) flowLinks.append("; ");
+                    String srcName = dep.getSourceFlowName() != null ? dep.getSourceFlowName() : dep.getSourceFlowId();
+                    String tgtName = dep.getTargetFlowName() != null ? dep.getTargetFlowName() : dep.getTargetFlowId();
+                    flowLinks.append(srcName).append(" -> ").append(tgtName)
+                             .append(" [").append(dep.getType().getDisplayName()).append("]");
+
+                    String srcKey = dep.getSourceFlowId() != null ? dep.getSourceFlowId() : dep.getSourceFlowName();
+                    String tgtKey = dep.getTargetFlowId() != null ? dep.getTargetFlowId() : dep.getTargetFlowName();
+                    String srcUsed = flowLastUsed.getOrDefault(srcKey, "");
+                    String tgtUsed = flowLastUsed.getOrDefault(tgtKey, "");
+                    if (srcUsed.compareTo(srcLatest) > 0) srcLatest = srcUsed;
+                    if (tgtUsed.compareTo(tgtLatest) > 0) tgtLatest = tgtUsed;
+                    if ("STARTED".equalsIgnoreCase(flowRuntimeStatus.getOrDefault(srcKey, ""))) anySrcActive = true;
+                    if ("STARTED".equalsIgnoreCase(flowRuntimeStatus.getOrDefault(tgtKey, ""))) anyTgtActive = true;
+                }
+
+                String linkStatus;
+                boolean srcHasUsage = !srcLatest.isEmpty();
+                boolean tgtHasUsage = !tgtLatest.isEmpty();
+                if (srcHasUsage && tgtHasUsage) linkStatus = "Active";
+                else if (!srcHasUsage && !tgtHasUsage) linkStatus = (anySrcActive || anyTgtActive) ? "Deployed, No Usage" : "Inactive";
+                else linkStatus = "Partially Active";
+
+                row.createCell(5).setCellValue(srcLatest.isEmpty() ? "No usage data" : formatCpiDate(srcLatest));
+                row.createCell(6).setCellValue(tgtLatest.isEmpty() ? "No usage data" : formatCpiDate(tgtLatest));
+                row.createCell(7).setCellValue(linkStatus);
+                row.createCell(8).setCellValue(nullSafe(flowLinks.toString()));
+            }
+            autoSizeColumns(sheet, headers.length);
+            if (rowNum > 1) {
+                sheet.setAutoFilter(new CellRangeAddress(0, 0, 0, headers.length - 1));
+            }
+        }
+
+        // Sheet: Circular Dependencies
+        List<java.util.List<String>> cycles = graph.detectCycles();
+        if (!cycles.isEmpty()) {
+            Sheet sheet = wb.createSheet("Circular Dependencies");
+            String[] headers = {"Cycle #", "Flow Chain"};
+            createHeaderRow(sheet, headerStyle, headers);
+
+            int rowNum = 1;
+            for (int i = 0; i < cycles.size(); i++) {
+                Row row = sheet.createRow(rowNum++);
+                row.createCell(0).setCellValue(i + 1);
+                java.util.List<String> cycle = cycles.get(i);
+                StringBuilder chain = new StringBuilder();
+                for (String flowId : cycle) {
+                    if (chain.length() > 0) chain.append(" -> ");
+                    IntegrationFlow f = graph.getFlowsById().get(flowId);
+                    chain.append(f != null ? f.getName() : flowId);
+                }
+                row.createCell(1).setCellValue(nullSafe(chain.toString()));
+            }
+            autoSizeColumns(sheet, headers.length);
+        }
+    }
+
+    // =========================================================================
     // Credentials / Security Materials Sheet (E4)
     // =========================================================================
 
@@ -891,7 +1028,9 @@ public class ExcelExporter {
         Sheet sheet = wb.createSheet("Flow Chains");
         String[] headers = {
                 "Chain Type", "Queue / Address", "Sender iFlow", "Sender Package",
-                "Receiver iFlow", "Receiver Package"
+                "Sender Last Used", "Sender Runtime",
+                "Receiver iFlow", "Receiver Package",
+                "Receiver Last Used", "Receiver Runtime"
         };
         createHeaderRow(sheet, headerStyle, headers);
 
@@ -900,6 +1039,35 @@ public class ExcelExporter {
         for (IntegrationPackage pkg : result.getPackages()) {
             for (IntegrationFlow f : pkg.getIntegrationFlows()) {
                 flowToPackage.put(f.getId(), pkg.getName() != null ? pkg.getName() : pkg.getId());
+            }
+        }
+
+        // Build MPL usage and runtime status lookups
+        java.util.Map<String, String> flowLastUsed = new java.util.LinkedHashMap<>();
+        java.util.Map<String, String> flowRuntimeStatus = new java.util.LinkedHashMap<>();
+        if (result.getMessageProcessingLogs() != null) {
+            for (MessageProcessingLog mpl : result.getMessageProcessingLogs()) {
+                String name = mpl.getIntegrationFlowName();
+                if (name == null || name.isBlank()) continue;
+                String logEnd = mpl.getLogEnd() != null ? mpl.getLogEnd() : "";
+                String existing = flowLastUsed.getOrDefault(name, "");
+                if (logEnd.compareTo(existing) > 0) flowLastUsed.put(name, logEnd);
+            }
+        }
+        for (IntegrationFlow flow : result.getAllFlows()) {
+            String rt = flow.getRuntimeStatus() != null ? flow.getRuntimeStatus() : "UNKNOWN";
+            if (flow.getId() != null) flowRuntimeStatus.put(flow.getId(), rt);
+            if (flow.getName() != null) flowRuntimeStatus.put(flow.getName(), rt);
+            if (flow.getId() != null && flow.getName() != null) {
+                String byId = flowLastUsed.get(flow.getId());
+                String byName = flowLastUsed.get(flow.getName());
+                String best = "";
+                if (byId != null) best = byId;
+                if (byName != null && byName.compareTo(best) > 0) best = byName;
+                if (!best.isEmpty()) {
+                    flowLastUsed.put(flow.getId(), best);
+                    flowLastUsed.put(flow.getName(), best);
+                }
             }
         }
 
@@ -935,7 +1103,7 @@ public class ExcelExporter {
         }
 
         int rowNum = 1;
-        rowNum = writeChainRows(sheet, rowNum, "JMS", jmsProducers, jmsConsumers, flowToPackage);
+        rowNum = writeChainRows(sheet, rowNum, "JMS", jmsProducers, jmsConsumers, flowToPackage, flowLastUsed, flowRuntimeStatus);
         // Orphan JMS consumers
         for (var entry : jmsConsumers.entrySet()) {
             if (!jmsProducers.containsKey(entry.getKey())) {
@@ -945,12 +1113,17 @@ public class ExcelExporter {
                     row.createCell(1).setCellValue(entry.getKey());
                     row.createCell(2).setCellValue("(no producer found)");
                     row.createCell(3).setCellValue("");
-                    row.createCell(4).setCellValue(cons[1]);
-                    row.createCell(5).setCellValue(flowToPackage.getOrDefault(cons[0], ""));
+                    row.createCell(4).setCellValue("");
+                    row.createCell(5).setCellValue("");
+                    row.createCell(6).setCellValue(cons[1]);
+                    row.createCell(7).setCellValue(flowToPackage.getOrDefault(cons[0], ""));
+                    String consUsed = flowLastUsed.getOrDefault(cons[0], flowLastUsed.getOrDefault(cons[1], ""));
+                    row.createCell(8).setCellValue(consUsed.isEmpty() ? "No usage data" : formatCpiDate(consUsed));
+                    row.createCell(9).setCellValue(flowRuntimeStatus.getOrDefault(cons[0], flowRuntimeStatus.getOrDefault(cons[1], "UNKNOWN")));
                 }
             }
         }
-        rowNum = writeChainRows(sheet, rowNum, "ProcessDirect", pdProducers, pdConsumers, flowToPackage);
+        rowNum = writeChainRows(sheet, rowNum, "ProcessDirect", pdProducers, pdConsumers, flowToPackage, flowLastUsed, flowRuntimeStatus);
         for (var entry : pdConsumers.entrySet()) {
             if (!pdProducers.containsKey(entry.getKey())) {
                 for (String[] cons : entry.getValue()) {
@@ -959,8 +1132,13 @@ public class ExcelExporter {
                     row.createCell(1).setCellValue(entry.getKey());
                     row.createCell(2).setCellValue("(no producer found)");
                     row.createCell(3).setCellValue("");
-                    row.createCell(4).setCellValue(cons[1]);
-                    row.createCell(5).setCellValue(flowToPackage.getOrDefault(cons[0], ""));
+                    row.createCell(4).setCellValue("");
+                    row.createCell(5).setCellValue("");
+                    row.createCell(6).setCellValue(cons[1]);
+                    row.createCell(7).setCellValue(flowToPackage.getOrDefault(cons[0], ""));
+                    String consUsed = flowLastUsed.getOrDefault(cons[0], flowLastUsed.getOrDefault(cons[1], ""));
+                    row.createCell(8).setCellValue(consUsed.isEmpty() ? "No usage data" : formatCpiDate(consUsed));
+                    row.createCell(9).setCellValue(flowRuntimeStatus.getOrDefault(cons[0], flowRuntimeStatus.getOrDefault(cons[1], "UNKNOWN")));
                 }
             }
         }
@@ -970,7 +1148,9 @@ public class ExcelExporter {
     private int writeChainRows(Sheet sheet, int rowNum, String chainType,
                                 java.util.Map<String, java.util.List<String[]>> producers,
                                 java.util.Map<String, java.util.List<String[]>> consumers,
-                                java.util.Map<String, String> flowToPackage) {
+                                java.util.Map<String, String> flowToPackage,
+                                java.util.Map<String, String> flowLastUsed,
+                                java.util.Map<String, String> flowRuntimeStatus) {
         for (var entry : producers.entrySet()) {
             String queue = entry.getKey();
             java.util.List<String[]> cons = consumers.getOrDefault(queue, java.util.List.of());
@@ -981,8 +1161,13 @@ public class ExcelExporter {
                     row.createCell(1).setCellValue(queue);
                     row.createCell(2).setCellValue(prod[1]);
                     row.createCell(3).setCellValue(flowToPackage.getOrDefault(prod[0], ""));
-                    row.createCell(4).setCellValue("(no consumer found)");
-                    row.createCell(5).setCellValue("");
+                    String prodUsed = flowLastUsed.getOrDefault(prod[0], flowLastUsed.getOrDefault(prod[1], ""));
+                    row.createCell(4).setCellValue(prodUsed.isEmpty() ? "No usage data" : formatCpiDate(prodUsed));
+                    row.createCell(5).setCellValue(flowRuntimeStatus.getOrDefault(prod[0], flowRuntimeStatus.getOrDefault(prod[1], "UNKNOWN")));
+                    row.createCell(6).setCellValue("(no consumer found)");
+                    row.createCell(7).setCellValue("");
+                    row.createCell(8).setCellValue("");
+                    row.createCell(9).setCellValue("");
                 }
             } else {
                 for (String[] prod : entry.getValue()) {
@@ -992,8 +1177,14 @@ public class ExcelExporter {
                         row.createCell(1).setCellValue(queue);
                         row.createCell(2).setCellValue(prod[1]);
                         row.createCell(3).setCellValue(flowToPackage.getOrDefault(prod[0], ""));
-                        row.createCell(4).setCellValue(con[1]);
-                        row.createCell(5).setCellValue(flowToPackage.getOrDefault(con[0], ""));
+                        String prodUsed = flowLastUsed.getOrDefault(prod[0], flowLastUsed.getOrDefault(prod[1], ""));
+                        row.createCell(4).setCellValue(prodUsed.isEmpty() ? "No usage data" : formatCpiDate(prodUsed));
+                        row.createCell(5).setCellValue(flowRuntimeStatus.getOrDefault(prod[0], flowRuntimeStatus.getOrDefault(prod[1], "UNKNOWN")));
+                        row.createCell(6).setCellValue(con[1]);
+                        row.createCell(7).setCellValue(flowToPackage.getOrDefault(con[0], ""));
+                        String conUsed = flowLastUsed.getOrDefault(con[0], flowLastUsed.getOrDefault(con[1], ""));
+                        row.createCell(8).setCellValue(conUsed.isEmpty() ? "No usage data" : formatCpiDate(conUsed));
+                        row.createCell(9).setCellValue(flowRuntimeStatus.getOrDefault(con[0], flowRuntimeStatus.getOrDefault(con[1], "UNKNOWN")));
                     }
                 }
             }

@@ -108,7 +108,11 @@ public class IFlowXmlParser {
             adapter.setDirection(direction);
             adapter.setTransportProtocol(getPropertyValue(mf, "TransportProtocol"));
             adapter.setMessageProtocol(getPropertyValue(mf, "MessageProtocol"));
-            adapter.setAddress(getPropertyValue(mf, "Address"));
+            String address = getPropertyValue(mf, "Address");
+            if (address == null || address.isBlank()) {
+                address = getPropertyValue(mf, "address");
+            }
+            adapter.setAddress(address);
             adapter.setProperties(extractAllProperties(mf));
 
             content.getAdapters().add(adapter);

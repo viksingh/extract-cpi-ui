@@ -280,6 +280,11 @@ public class CpiApiService {
                     try {
                         if (fetchFlows) {
                             List<IntegrationFlow> flows = getPackageFlows(pkg.getId());
+                            for (IntegrationFlow f : flows) {
+                                if (f.getPackageId() == null || f.getPackageId().isBlank()) {
+                                    f.setPackageId(pkg.getId());
+                                }
+                            }
                             synchronized (pkg) {
                                 pkg.setIntegrationFlows(flows);
                             }

@@ -152,6 +152,7 @@
         <Button text="Save Config" onAction="#onSaveConfig" styleClass="action-btn"/>
         <Region HBox.hgrow="ALWAYS"/>
         <Button fx:id="loadSnapshotBtn" text="Load Snapshot..." onAction="#onLoadSnapshot" styleClass="action-btn"/>
+        <Button fx:id="exportSnapshotBtn" text="Export" onAction="#onExportSnapshot" styleClass="action-btn" disable="true"/>
         <Button fx:id="fetchPackagesBtn" text="Fetch Packages" onAction="#onFetchPackages"
                 styleClass="action-btn"/>
         <Button fx:id="extractButton" text="Extract &amp; Export" onAction="#onExtract"
@@ -194,6 +195,9 @@
         </Tab>
         <Tab text="Flow Chains">
             <TableView fx:id="flowChainsTable" styleClass="data-table"/>
+        </Tab>
+        <Tab text="Package Dependencies">
+            <TableView fx:id="packageDepsTable" styleClass="data-table"/>
         </Tab>
         <Tab text="API Calls">
             <TableView fx:id="apiCallsTable" styleClass="data-table"/>

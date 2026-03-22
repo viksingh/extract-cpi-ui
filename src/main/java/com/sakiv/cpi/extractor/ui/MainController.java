@@ -8,6 +8,7 @@ import com.sakiv.cpi.extractor.model.*;
 import com.sakiv.cpi.extractor.service.CpiApiService;
 import com.sakiv.cpi.extractor.service.CpiHttpClient;
 import com.sakiv.cpi.extractor.service.CpiHttpClient.ApiCallRecord;
+import com.sakiv.cpi.extractor.service.DependencyAnalysisService;
 import com.sakiv.cpi.extractor.service.ProfileManager;
 import com.sakiv.cpi.extractor.service.SnapshotLoader;
 import com.sakiv.cpi.extractor.util.DateFilterUtil;
@@ -114,6 +115,7 @@ public class MainController {
     @FXML private TableView<CredentialRow> credentialsTable;
     @FXML private TableView<EccEndpointRow> eccEndpointsTable;
     @FXML private TableView<FlowChainRow> flowChainsTable;
+    @FXML private TableView<PackageDepRow> packageDepsTable;
     @FXML private TableView<ApiCallRow> apiCallsTable;
 
     // Package filter pane
@@ -125,6 +127,7 @@ public class MainController {
     @FXML private Label progressLabel;
     @FXML private Button extractButton;
     @FXML private Button loadSnapshotBtn;
+    @FXML private Button exportSnapshotBtn;
     @FXML private Button fetchPackagesBtn;
 
     // Pre-fetched packages from "Fetch Packages" step
@@ -159,6 +162,7 @@ public class MainController {
         initCredentialsTable();
         initEccEndpointsTable();
         initFlowChainsTable();
+        initPackageDepsTable();
         initApiCallsTable();
 
         // Re-apply filter automatically whenever filter settings change after data is loaded
@@ -632,6 +636,7 @@ public class MainController {
                 progressLabel.setText("Snapshot loaded!");
                 extractButton.setDisable(false);
                 loadSnapshotBtn.setDisable(false);
+                exportSnapshotBtn.setDisable(false);
                 saveOriginals(result);
                 populatePackageCheckboxes(result.getPackages());
                 applyDateFilter(result);
@@ -655,6 +660,71 @@ public class MainController {
         Thread thread = new Thread(task, "snapshot-load-thread");
         thread.setDaemon(true);
         thread.start();
+    }
+
+    @FXML
+    private void onExportSnapshot() {
+        if (currentResult == null) {
+            showError("No Data", "No extraction or snapshot data available to export.");
+            return;
+        }
+
+        String outputDir = outputDirField.getText().trim();
+        if (outputDir.isBlank()) outputDir = "C:\\temp\\CPI Extracts";
+        String prefix = filenamePrefixField.getText().trim();
+        if (prefix.isBlank()) prefix = "cpi_artifacts";
+        String exportFormat = getExportFormat();
+
+        exportSnapshotBtn.setDisable(true);
+        progressBar.setVisible(true);
+        progressBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
+        progressLabel.setText("Exporting...");
+
+        final String finalOutputDir = outputDir;
+        final String finalPrefix = prefix;
+        final ExtractionResult result = currentResult;
+
+        Task<String> exportTask = new Task<>() {
+            @Override
+            protected String call() throws Exception {
+                StringBuilder exported = new StringBuilder();
+                switch (exportFormat) {
+                    case "xlsx" -> exported.append(new ExcelExporter().export(result, finalOutputDir, finalPrefix));
+                    case "csv" -> exported.append(new CsvExporter().export(result, finalOutputDir, finalPrefix));
+                    case "json" -> exported.append(new JsonExporter().export(result, finalOutputDir, finalPrefix));
+                    case "all" -> {
+                        exported.append(new ExcelExporter().export(result, finalOutputDir, finalPrefix));
+                        exported.append("\n");
+                        exported.append(new CsvExporter().export(result, finalOutputDir, finalPrefix));
+                        exported.append("\n");
+                        exported.append(new JsonExporter().export(result, finalOutputDir, finalPrefix));
+                    }
+                }
+                return exported.toString();
+            }
+        };
+
+        exportTask.setOnSucceeded(e -> Platform.runLater(() -> {
+            progressBar.setProgress(1.0);
+            progressLabel.setText("Export complete!");
+            exportSnapshotBtn.setDisable(false);
+            appendLog("Exported to: " + exportTask.getValue());
+        }));
+
+        exportTask.setOnFailed(e -> {
+            Throwable ex = exportTask.getException();
+            Platform.runLater(() -> {
+                progressBar.setVisible(false);
+                progressLabel.setText("Export failed.");
+                exportSnapshotBtn.setDisable(false);
+                appendLog("ERROR: " + ex.getMessage());
+                showError("Export Failed", ex.getMessage());
+            });
+        });
+
+        Thread exportThread = new Thread(exportTask, "snapshot-export-thread");
+        exportThread.setDaemon(true);
+        exportThread.start();
     }
 
     @FXML
@@ -814,6 +884,7 @@ public class MainController {
                 // Apply filter on FX thread — reads current UI control values safely
                 applyDateFilter(result);
                 populateResults(result);
+                exportSnapshotBtn.setDisable(false);
                 // Export filtered data in a separate background task
                 startExport(result, exportFormat, props, autoSnapshot);
             });
@@ -1187,6 +1258,9 @@ public class MainController {
         List<FlowChainRow> chainRows = buildFlowChains(result);
         flowChainsTable.setItems(FXCollections.observableArrayList(chainRows));
 
+        // Package Dependencies & Flow Dependencies tabs — run dependency analysis
+        populateDependencyTabs(result, flowToPackage);
+
         // API Calls tab
         List<ApiCallRow> apiCallRows = new ArrayList<>();
         for (CpiHttpClient.ApiCallRecord rec : result.getApiCallLog()) {
@@ -1452,6 +1526,51 @@ public class MainController {
     }
 
     @SuppressWarnings("unchecked")
+    private void initPackageDepsTable() {
+        TableColumn<PackageDepRow, String> srcPkgCol = new TableColumn<>("Source Package");
+        srcPkgCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().sourcePackage()));
+        srcPkgCol.setMinWidth(250);
+        srcPkgCol.setPrefWidth(300);
+
+        TableColumn<PackageDepRow, String> tgtPkgCol = new TableColumn<>("Target Package");
+        tgtPkgCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().targetPackage()));
+        tgtPkgCol.setMinWidth(250);
+        tgtPkgCol.setPrefWidth(300);
+
+        TableColumn<PackageDepRow, String> typesCol = new TableColumn<>("Dependency Types");
+        typesCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().dependencyTypes()));
+        typesCol.setPrefWidth(140);
+
+        TableColumn<PackageDepRow, String> strengthCol = new TableColumn<>("# Links");
+        strengthCol.setCellValueFactory(cd -> new SimpleStringProperty(String.valueOf(cd.getValue().strength())));
+        strengthCol.setPrefWidth(60);
+
+        TableColumn<PackageDepRow, String> crossPkgCol = new TableColumn<>("Cross-Package");
+        crossPkgCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().crossPackage()));
+        crossPkgCol.setPrefWidth(100);
+
+        TableColumn<PackageDepRow, String> flowsCol = new TableColumn<>("Flow Links");
+        flowsCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().flowLinks()));
+        flowsCol.setPrefWidth(400);
+
+        TableColumn<PackageDepRow, String> srcLastUsedCol = new TableColumn<>("Source Last Used");
+        srcLastUsedCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().sourceLastUsed()));
+        srcLastUsedCol.setPrefWidth(160);
+
+        TableColumn<PackageDepRow, String> tgtLastUsedCol = new TableColumn<>("Target Last Used");
+        tgtLastUsedCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().targetLastUsed()));
+        tgtLastUsedCol.setPrefWidth(160);
+
+        TableColumn<PackageDepRow, String> statusCol = new TableColumn<>("Link Status");
+        statusCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().linkStatus()));
+        statusCol.setPrefWidth(120);
+
+        packageDepsTable.getColumns().addAll(srcPkgCol, tgtPkgCol, typesCol, strengthCol,
+                crossPkgCol, srcLastUsedCol, tgtLastUsedCol, statusCol, flowsCol);
+        packageDepsTable.setColumnResizePolicy(TableView.UNCONSTRAINED_RESIZE_POLICY);
+    }
+
+    @SuppressWarnings("unchecked")
     private void initApiCallsTable() {
         TableColumn<ApiCallRow, String> methodCol = new TableColumn<>("Method");
         methodCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().method()));
@@ -1484,6 +1603,117 @@ public class MainController {
         col.setCellValueFactory(cellData ->
                 new SimpleStringProperty(DateFilterUtil.formatCpiDate(dateGetter.apply(cellData.getValue()))));
         table.getColumns().add(col);
+    }
+
+    // =========================================================================
+    // Dependency Analysis Population
+    // =========================================================================
+
+    private void populateDependencyTabs(ExtractionResult result, Map<String, String> flowToPackage) {
+        // Check if any flows have bundle content
+        boolean hasBundles = result.getAllFlows().stream().anyMatch(IntegrationFlow::isBundleParsed);
+        if (!hasBundles) {
+            packageDepsTable.setItems(FXCollections.observableArrayList());
+            return;
+        }
+
+        DependencyAnalysisService analysisService = new DependencyAnalysisService();
+        DependencyGraph graph = analysisService.analyze(result, this::appendLog);
+
+        // Build packageId -> packageName mapping
+        Map<String, String> pkgIdToName = new LinkedHashMap<>();
+        for (IntegrationPackage pkg : result.getPackages()) {
+            pkgIdToName.put(pkg.getId(), pkg.getName() != null ? pkg.getName() : pkg.getId());
+        }
+
+        // Build MPL usage lookup: flowId/flowName -> last execution date
+        Map<String, String> flowLastUsed = new LinkedHashMap<>();
+        Map<String, String> flowRuntimeStatus = new LinkedHashMap<>();
+        if (result.getMessageProcessingLogs() != null) {
+            for (MessageProcessingLog mpl : result.getMessageProcessingLogs()) {
+                String name = mpl.getIntegrationFlowName();
+                if (name == null || name.isBlank()) continue;
+                String logEnd = mpl.getLogEnd() != null ? mpl.getLogEnd() : "";
+                String existing = flowLastUsed.getOrDefault(name, "");
+                if (logEnd.compareTo(existing) > 0) {
+                    flowLastUsed.put(name, logEnd);
+                }
+            }
+        }
+        for (IntegrationFlow flow : result.getAllFlows()) {
+            String rt = flow.getRuntimeStatus() != null ? flow.getRuntimeStatus() : "UNKNOWN";
+            if (flow.getId() != null) flowRuntimeStatus.put(flow.getId(), rt);
+            if (flow.getName() != null) flowRuntimeStatus.put(flow.getName(), rt);
+            // Also map by ID for last used (MPLs may use either ID or Name)
+            if (flow.getId() != null && flow.getName() != null) {
+                String byId = flowLastUsed.get(flow.getId());
+                String byName = flowLastUsed.get(flow.getName());
+                String best = "";
+                if (byId != null) best = byId;
+                if (byName != null && byName.compareTo(best) > 0) best = byName;
+                if (!best.isEmpty()) {
+                    flowLastUsed.put(flow.getId(), best);
+                    flowLastUsed.put(flow.getName(), best);
+                }
+            }
+        }
+
+        // Package Dependencies tab — aggregated with usage info
+        List<PackageDependency> pkgDeps = graph.getPackageDependencies(pkgIdToName);
+        List<PackageDepRow> pkgDepRows = new ArrayList<>();
+        for (PackageDependency pd : pkgDeps) {
+            // Build flow links summary and find latest usage across all flows in this package dep
+            StringBuilder flowLinks = new StringBuilder();
+            String srcLatest = "";
+            String tgtLatest = "";
+            boolean anySrcActive = false;
+            boolean anyTgtActive = false;
+
+            for (Dependency dep : pd.getFlowDependencies()) {
+                if (flowLinks.length() > 0) flowLinks.append("; ");
+                String srcName = dep.getSourceFlowName() != null ? dep.getSourceFlowName() : dep.getSourceFlowId();
+                String tgtName = dep.getTargetFlowName() != null ? dep.getTargetFlowName() : dep.getTargetFlowId();
+                flowLinks.append(srcName).append(" -> ").append(tgtName)
+                         .append(" [").append(dep.getType().getDisplayName()).append("]");
+
+                String srcKey = dep.getSourceFlowId() != null ? dep.getSourceFlowId() : dep.getSourceFlowName();
+                String tgtKey = dep.getTargetFlowId() != null ? dep.getTargetFlowId() : dep.getTargetFlowName();
+                String srcUsed = flowLastUsed.getOrDefault(srcKey, "");
+                String tgtUsed = flowLastUsed.getOrDefault(tgtKey, "");
+                if (srcUsed.compareTo(srcLatest) > 0) srcLatest = srcUsed;
+                if (tgtUsed.compareTo(tgtLatest) > 0) tgtLatest = tgtUsed;
+                if ("STARTED".equalsIgnoreCase(flowRuntimeStatus.getOrDefault(srcKey, ""))) anySrcActive = true;
+                if ("STARTED".equalsIgnoreCase(flowRuntimeStatus.getOrDefault(tgtKey, ""))) anyTgtActive = true;
+            }
+
+            // Determine link status
+            String linkStatus;
+            boolean srcHasUsage = !srcLatest.isEmpty();
+            boolean tgtHasUsage = !tgtLatest.isEmpty();
+            if (srcHasUsage && tgtHasUsage) {
+                linkStatus = "Active";
+            } else if (!srcHasUsage && !tgtHasUsage) {
+                linkStatus = (anySrcActive || anyTgtActive) ? "Deployed, No Usage" : "Inactive";
+            } else {
+                linkStatus = "Partially Active";
+            }
+
+            pkgDepRows.add(new PackageDepRow(
+                    pd.getSourcePackageName(), pd.getTargetPackageName(),
+                    pd.getDependencyTypesDisplay(), pd.getStrength(),
+                    pd.isCrossPackage() ? "Yes" : "No (intra-package)",
+                    flowLinks.toString(),
+                    srcLatest.isEmpty() ? "No usage data" : DateFilterUtil.formatCpiDate(srcLatest),
+                    tgtLatest.isEmpty() ? "No usage data" : DateFilterUtil.formatCpiDate(tgtLatest),
+                    linkStatus));
+        }
+        packageDepsTable.setItems(FXCollections.observableArrayList(pkgDepRows));
+
+        // Append dependency summary to the summary tab
+        String depSummary = graph.getSummary();
+        summaryTextArea.appendText("\n" + depSummary);
+
+        log.info("Dependency tabs populated: {} package deps", pkgDepRows.size());
     }
 
     // =========================================================================
@@ -1616,6 +1846,12 @@ public class MainController {
     public record CredentialRow(String packageName, String flowName, String adapterType,
                                  String direction, String credentialName, String credentialType,
                                  String propertyKey, String context) {}
+
+    public record PackageDepRow(String sourcePackage, String targetPackage,
+                                 String dependencyTypes, int strength,
+                                 String crossPackage, String flowLinks,
+                                 String sourceLastUsed, String targetLastUsed,
+                                 String linkStatus) {}
 
     // =========================================================================
     // E4: Credential Detection Helpers
