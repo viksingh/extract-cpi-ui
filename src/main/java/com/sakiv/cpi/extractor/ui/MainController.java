@@ -1536,11 +1536,11 @@ public class MainController {
     private void initUniqueInterfacesTable() {
         TableColumn<UniqueInterfaceRow, String> entryCol = new TableColumn<>("Entry iFlow");
         entryCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().entryFlow()));
-        entryCol.setMinWidth(200); entryCol.setPrefWidth(250);
+        entryCol.setMinWidth(250); entryCol.setPrefWidth(300);
 
         TableColumn<UniqueInterfaceRow, String> entryPkgCol = new TableColumn<>("Entry Package");
         entryPkgCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().entryPackage()));
-        entryPkgCol.setPrefWidth(180);
+        entryPkgCol.setMinWidth(200); entryPkgCol.setPrefWidth(250);
 
         TableColumn<UniqueInterfaceRow, String> senderCol = new TableColumn<>("Sender Adapter");
         senderCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().senderAdapter()));
@@ -1548,11 +1548,11 @@ public class MainController {
 
         TableColumn<UniqueInterfaceRow, String> exitCol = new TableColumn<>("Exit iFlow");
         exitCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().exitFlow()));
-        exitCol.setMinWidth(200); exitCol.setPrefWidth(250);
+        exitCol.setMinWidth(250); exitCol.setPrefWidth(300);
 
         TableColumn<UniqueInterfaceRow, String> exitPkgCol = new TableColumn<>("Exit Package");
         exitPkgCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().exitPackage()));
-        exitPkgCol.setPrefWidth(180);
+        exitPkgCol.setMinWidth(200); exitPkgCol.setPrefWidth(250);
 
         TableColumn<UniqueInterfaceRow, String> recvCol = new TableColumn<>("Receiver Adapter");
         recvCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().receiverAdapter()));
@@ -1564,15 +1564,15 @@ public class MainController {
 
         TableColumn<UniqueInterfaceRow, String> pathCol = new TableColumn<>("Chain Path");
         pathCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().chainPath()));
-        pathCol.setPrefWidth(400);
+        pathCol.setMinWidth(350); pathCol.setPrefWidth(500);
 
         TableColumn<UniqueInterfaceRow, String> intermediateCol = new TableColumn<>("Intermediate Flows");
         intermediateCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().intermediateFlows()));
-        intermediateCol.setPrefWidth(250);
+        intermediateCol.setMinWidth(200); intermediateCol.setPrefWidth(300);
 
         TableColumn<UniqueInterfaceRow, String> pkgsCol = new TableColumn<>("Packages Involved");
         pkgsCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().packagesInvolved()));
-        pkgsCol.setPrefWidth(250);
+        pkgsCol.setMinWidth(200); pkgsCol.setPrefWidth(300);
 
         TableColumn<UniqueInterfaceRow, String> lastUsedCol = new TableColumn<>("Last Used");
         lastUsedCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().lastUsed()));
