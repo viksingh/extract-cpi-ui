@@ -199,6 +199,216 @@ public class DependencyAnalysisService {
     }
 
     // =========================================================================
+    // Unique Interface Tracing
+    // =========================================================================
+
+    /**
+     * Trace end-to-end unique interfaces by following PD/JMS chains transitively.
+     * An entry flow has an external sender adapter; an exit flow has an external receiver adapter.
+     * Returns a list of traced paths, each representing one logical interface.
+     */
+    public List<UniqueInterfacePath> traceUniqueInterfaces(DependencyGraph graph) {
+        List<UniqueInterfacePath> results = new ArrayList<>();
+        Map<String, IntegrationFlow> flowsById = graph.getFlowsById();
+
+        // Identify flows that are targets of internal links
+        Set<String> internalTargets = new HashSet<>();
+        for (Dependency dep : graph.getDependencies()) {
+            internalTargets.add(dep.getTargetFlowId());
+        }
+
+        for (IntegrationFlow flow : flowsById.values()) {
+            IFlowContent content = flow.getIflowContent();
+            if (content == null) continue;
+
+            // Find external sender adapters on this flow
+            for (IFlowAdapter adapter : content.getAdapters()) {
+                if (!"sender".equalsIgnoreCase(adapter.getDirection())) continue;
+                if (isInternalAdapterType(adapter.getAdapterType())) continue;
+
+                // This flow has an external sender — it's an entry point
+                String senderType = adapter.getAdapterType() != null ? adapter.getAdapterType() : "Unknown";
+                String senderAddress = adapter.getAddress() != null ? adapter.getAddress() : "";
+
+                // DFS to find all end-to-end paths
+                List<IntegrationFlow> path = new ArrayList<>();
+                path.add(flow);
+                Set<String> visited = new HashSet<>();
+                visited.add(flow.getId());
+                traceChainDFS(flow, path, visited, senderType, senderAddress,
+                        graph, flowsById, results);
+            }
+        }
+
+        // Also add standalone flows (external sender + external receiver, no internal links)
+        // These are already covered by the DFS above (outgoing is empty → terminates)
+
+        // Filter out single-flow paths (no PD/JMS chaining) and deduplicate
+        Map<String, UniqueInterfacePath> deduped = new LinkedHashMap<>();
+        for (UniqueInterfacePath uip : results) {
+            if (uip.getChainLength() <= 1) continue; // skip standalone flows
+            String key = uip.getPathKey();
+            if (!deduped.containsKey(key)) {
+                deduped.put(key, uip);
+            }
+        }
+
+        return new ArrayList<>(deduped.values());
+    }
+
+    private void traceChainDFS(IntegrationFlow current, List<IntegrationFlow> path,
+                                Set<String> visited, String senderType, String senderAddress,
+                                DependencyGraph graph, Map<String, IntegrationFlow> flowsById,
+                                List<UniqueInterfacePath> results) {
+        List<Dependency> outgoing = graph.getOutgoingDependencies(current.getId());
+
+        // Check if current flow has external receiver adapters
+        List<String[]> externalReceivers = getExternalReceiverAdapters(current);
+
+        if (outgoing.isEmpty()) {
+            // Terminal flow — emit for each external receiver, or as dead end
+            if (!externalReceivers.isEmpty()) {
+                for (String[] recv : externalReceivers) {
+                    results.add(new UniqueInterfacePath(
+                            new ArrayList<>(path), senderType, senderAddress,
+                            recv[0], recv[1], false));
+                }
+            } else {
+                results.add(new UniqueInterfacePath(
+                        new ArrayList<>(path), senderType, senderAddress,
+                        "(dead end)", "", false));
+            }
+            return;
+        }
+
+        // If flow has external receivers AND outgoing internal links, emit here too
+        if (!externalReceivers.isEmpty()) {
+            for (String[] recv : externalReceivers) {
+                results.add(new UniqueInterfacePath(
+                        new ArrayList<>(path), senderType, senderAddress,
+                        recv[0], recv[1], false));
+            }
+        }
+
+        // Continue traversal through internal links
+        for (Dependency dep : outgoing) {
+            String targetId = dep.getTargetFlowId();
+            if (visited.contains(targetId)) {
+                // Cycle detected
+                List<IntegrationFlow> cyclePath = new ArrayList<>(path);
+                IntegrationFlow targetFlow = flowsById.get(targetId);
+                if (targetFlow != null) cyclePath.add(targetFlow);
+                results.add(new UniqueInterfacePath(
+                        cyclePath, senderType, senderAddress,
+                        "(cycle)", "", true));
+                continue;
+            }
+
+            IntegrationFlow targetFlow = flowsById.get(targetId);
+            if (targetFlow == null) continue;
+
+            path.add(targetFlow);
+            visited.add(targetId);
+            traceChainDFS(targetFlow, path, visited, senderType, senderAddress,
+                    graph, flowsById, results);
+            visited.remove(targetId);
+            path.remove(path.size() - 1);
+        }
+    }
+
+    private List<String[]> getExternalReceiverAdapters(IntegrationFlow flow) {
+        List<String[]> receivers = new ArrayList<>();
+        IFlowContent content = flow.getIflowContent();
+        if (content == null) return receivers;
+
+        for (IFlowAdapter adapter : content.getAdapters()) {
+            if (!"receiver".equalsIgnoreCase(adapter.getDirection())) continue;
+            if (isInternalAdapterType(adapter.getAdapterType())) continue;
+            String type = adapter.getAdapterType() != null ? adapter.getAdapterType() : "Unknown";
+            String address = adapter.getAddress() != null ? adapter.getAddress() : "";
+            receivers.add(new String[]{type, address});
+        }
+        return receivers;
+    }
+
+    private boolean isInternalAdapterType(String type) {
+        if (type == null) return false;
+        String lower = type.toLowerCase();
+        return lower.contains("processdirect") || lower.contains("jms");
+    }
+
+    /**
+     * Represents a traced end-to-end interface path.
+     */
+    public static class UniqueInterfacePath {
+        private final List<IntegrationFlow> flows;
+        private final String senderAdapterType;
+        private final String senderAddress;
+        private final String receiverAdapterType;
+        private final String receiverAddress;
+        private final boolean cyclic;
+
+        public UniqueInterfacePath(List<IntegrationFlow> flows,
+                                    String senderAdapterType, String senderAddress,
+                                    String receiverAdapterType, String receiverAddress,
+                                    boolean cyclic) {
+            this.flows = flows;
+            this.senderAdapterType = senderAdapterType;
+            this.senderAddress = senderAddress;
+            this.receiverAdapterType = receiverAdapterType;
+            this.receiverAddress = receiverAddress;
+            this.cyclic = cyclic;
+        }
+
+        public List<IntegrationFlow> getFlows() { return flows; }
+        public IntegrationFlow getEntryFlow() { return flows.get(0); }
+        public IntegrationFlow getExitFlow() { return flows.get(flows.size() - 1); }
+        public String getSenderAdapterType() { return senderAdapterType; }
+        public String getSenderAddress() { return senderAddress; }
+        public String getReceiverAdapterType() { return receiverAdapterType; }
+        public String getReceiverAddress() { return receiverAddress; }
+        public boolean isCyclic() { return cyclic; }
+        public int getChainLength() { return flows.size(); }
+
+        public String getChainPath() {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < flows.size(); i++) {
+                if (i > 0) sb.append(" -> ");
+                sb.append(flows.get(i).getName() != null ? flows.get(i).getName() : flows.get(i).getId());
+            }
+            return sb.toString();
+        }
+
+        public String getIntermediateFlows() {
+            if (flows.size() <= 2) return "";
+            StringBuilder sb = new StringBuilder();
+            for (int i = 1; i < flows.size() - 1; i++) {
+                if (sb.length() > 0) sb.append(", ");
+                sb.append(flows.get(i).getName() != null ? flows.get(i).getName() : flows.get(i).getId());
+            }
+            return sb.toString();
+        }
+
+        public String getPackagesInvolved() {
+            Set<String> packages = new LinkedHashSet<>();
+            for (IntegrationFlow f : flows) {
+                if (f.getPackageId() != null) packages.add(f.getPackageId());
+            }
+            return String.join(", ", packages);
+        }
+
+        public String getPathKey() {
+            StringBuilder sb = new StringBuilder();
+            for (IntegrationFlow f : flows) {
+                if (sb.length() > 0) sb.append("|");
+                sb.append(f.getId());
+            }
+            sb.append(">>").append(senderAdapterType).append(">>").append(receiverAdapterType);
+            return sb.toString();
+        }
+    }
+
+    // =========================================================================
     // Helper Methods
     // =========================================================================
 

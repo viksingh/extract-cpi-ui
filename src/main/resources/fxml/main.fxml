@@ -196,6 +196,9 @@
         <Tab text="Flow Chains">
             <TableView fx:id="flowChainsTable" styleClass="data-table"/>
         </Tab>
+        <Tab text="Unique Interfaces">
+            <TableView fx:id="uniqueInterfacesTable" styleClass="data-table"/>
+        </Tab>
         <Tab text="Package Dependencies">
             <TableView fx:id="packageDepsTable" styleClass="data-table"/>
         </Tab>

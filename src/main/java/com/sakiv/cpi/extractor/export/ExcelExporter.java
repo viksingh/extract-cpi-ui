@@ -95,6 +95,11 @@ public class ExcelExporter {
                 createFlowChainsSheet(workbook, headerStyle, result);
             }
 
+            // Sheet: Unique Interfaces (end-to-end paths)
+            if (!bundledFlows.isEmpty()) {
+                createUniqueInterfacesSheet(workbook, headerStyle, result);
+            }
+
             // Sheet: Dependencies (Package + Flow level)
             if (!bundledFlows.isEmpty()) {
                 createDependencySheets(workbook, headerStyle, result);
@@ -671,6 +676,12 @@ public class ExcelExporter {
     }
 
     // @author Vikas Singh | Created: 2025-12-14
+    private static boolean isInternalAdapterType(String type) {
+        if (type == null) return false;
+        String lower = type.toLowerCase();
+        return lower.contains("processdirect") || lower.contains("jms");
+    }
+
     private void createHeaderRow(Sheet sheet, CellStyle style, String[] headers) {
         Row row = sheet.createRow(0);
         for (int i = 0; i < headers.length; i++) {
@@ -720,6 +731,146 @@ public class ExcelExporter {
             return value.substring(0, MAX_CELL_LENGTH - 3) + "...";
         }
         return value;
+    }
+
+    // =========================================================================
+    // Unique Interfaces Sheet
+    // =========================================================================
+
+    private void createUniqueInterfacesSheet(Workbook wb, CellStyle headerStyle, ExtractionResult result) {
+        DependencyAnalysisService analysisService = new DependencyAnalysisService();
+        DependencyGraph graph = analysisService.analyze(result, null);
+
+        List<DependencyAnalysisService.UniqueInterfacePath> paths = analysisService.traceUniqueInterfaces(graph);
+
+        Sheet sheet = wb.createSheet("Unique Interfaces");
+        String[] headers = {
+                "Entry iFlow", "Entry Package", "Sender Adapter", "Sender Address",
+                "Exit iFlow", "Exit Package", "Receiver Adapter", "Receiver Address",
+                "Chain Length", "Chain Path", "Intermediate Flows", "Packages Involved",
+                "Last Used"
+        };
+        createHeaderRow(sheet, headerStyle, headers);
+
+        // Build packageId -> packageName mapping
+        java.util.Map<String, String> pkgIdToName = new java.util.LinkedHashMap<>();
+        for (IntegrationPackage pkg : result.getPackages()) {
+            pkgIdToName.put(pkg.getId(), pkg.getName() != null ? pkg.getName() : pkg.getId());
+        }
+
+        // Build MPL usage lookup
+        java.util.Map<String, String> flowLastUsed = new java.util.LinkedHashMap<>();
+        if (result.getMessageProcessingLogs() != null) {
+            for (MessageProcessingLog mpl : result.getMessageProcessingLogs()) {
+                String name = mpl.getIntegrationFlowName();
+                if (name == null || name.isBlank()) continue;
+                String logEnd = mpl.getLogEnd() != null ? mpl.getLogEnd() : "";
+                String existing = flowLastUsed.getOrDefault(name, "");
+                if (logEnd.compareTo(existing) > 0) flowLastUsed.put(name, logEnd);
+            }
+        }
+        for (IntegrationFlow f : result.getAllFlows()) {
+            if (f.getId() != null && f.getName() != null) {
+                String byId = flowLastUsed.get(f.getId());
+                String byName = flowLastUsed.get(f.getName());
+                String best = "";
+                if (byId != null) best = byId;
+                if (byName != null && byName.compareTo(best) > 0) best = byName;
+                if (!best.isEmpty()) {
+                    flowLastUsed.put(f.getId(), best);
+                    flowLastUsed.put(f.getName(), best);
+                }
+            }
+        }
+
+        java.util.Set<String> flowsInChains = new java.util.HashSet<>();
+        int rowNum = 1;
+
+        // Write chain paths
+        for (DependencyAnalysisService.UniqueInterfacePath uip : paths) {
+            Row row = sheet.createRow(rowNum++);
+            IntegrationFlow entry = uip.getEntryFlow();
+            IntegrationFlow exit = uip.getExitFlow();
+            String entryPkg = pkgIdToName.getOrDefault(
+                    entry.getPackageId() != null ? entry.getPackageId() : "", "");
+            String exitPkg = pkgIdToName.getOrDefault(
+                    exit.getPackageId() != null ? exit.getPackageId() : "", "");
+
+            // Compute last used across all flows in chain
+            String chainLastUsed = "";
+            for (IntegrationFlow f : uip.getFlows()) {
+                String key = f.getId() != null ? f.getId() : f.getName();
+                String used = flowLastUsed.getOrDefault(key, "");
+                if (used.isEmpty() && f.getName() != null) used = flowLastUsed.getOrDefault(f.getName(), "");
+                if (used.compareTo(chainLastUsed) > 0) chainLastUsed = used;
+                flowsInChains.add(f.getId());
+            }
+
+            row.createCell(0).setCellValue(entry.getName() != null ? entry.getName() : entry.getId());
+            row.createCell(1).setCellValue(entryPkg);
+            row.createCell(2).setCellValue(uip.getSenderAdapterType());
+            row.createCell(3).setCellValue(uip.getSenderAddress());
+            row.createCell(4).setCellValue(exit.getName() != null ? exit.getName() : exit.getId());
+            row.createCell(5).setCellValue(exitPkg);
+            row.createCell(6).setCellValue(uip.getReceiverAdapterType());
+            row.createCell(7).setCellValue(uip.getReceiverAddress());
+            row.createCell(8).setCellValue(uip.getChainLength());
+            row.createCell(9).setCellValue(uip.getChainPath());
+            row.createCell(10).setCellValue(uip.getIntermediateFlows());
+            row.createCell(11).setCellValue(uip.getPackagesInvolved());
+            row.createCell(12).setCellValue(chainLastUsed.isEmpty() ? "No usage data"
+                    : DateFilterUtil.formatCpiDate(chainLastUsed));
+        }
+
+        // Write standalone flows not part of any chain
+        for (IntegrationFlow flow : result.getAllFlows()) {
+            if (flowsInChains.contains(flow.getId())) continue;
+            IFlowContent content = flow.getIflowContent();
+            if (content == null) continue;
+
+            String senderType = null, senderAddr = "", recvType = null, recvAddr = "";
+            for (IFlowAdapter adapter : content.getAdapters()) {
+                if ("sender".equalsIgnoreCase(adapter.getDirection())
+                        && !isInternalAdapterType(adapter.getAdapterType())) {
+                    senderType = adapter.getAdapterType() != null ? adapter.getAdapterType() : "Unknown";
+                    senderAddr = adapter.getAddress() != null ? adapter.getAddress() : "";
+                }
+                if ("receiver".equalsIgnoreCase(adapter.getDirection())
+                        && !isInternalAdapterType(adapter.getAdapterType())) {
+                    recvType = adapter.getAdapterType() != null ? adapter.getAdapterType() : "Unknown";
+                    recvAddr = adapter.getAddress() != null ? adapter.getAddress() : "";
+                }
+            }
+            if (senderType == null && recvType == null) continue;
+
+            String flowName = flow.getName() != null ? flow.getName() : flow.getId();
+            String pkg = pkgIdToName.getOrDefault(
+                    flow.getPackageId() != null ? flow.getPackageId() : "", "");
+            String key = flow.getId() != null ? flow.getId() : flow.getName();
+            String used = flowLastUsed.getOrDefault(key, "");
+            if (used.isEmpty() && flow.getName() != null) used = flowLastUsed.getOrDefault(flow.getName(), "");
+
+            Row row = sheet.createRow(rowNum++);
+            row.createCell(0).setCellValue(flowName);
+            row.createCell(1).setCellValue(pkg);
+            row.createCell(2).setCellValue(senderType != null ? senderType : "");
+            row.createCell(3).setCellValue(senderAddr);
+            row.createCell(4).setCellValue(flowName);
+            row.createCell(5).setCellValue(pkg);
+            row.createCell(6).setCellValue(recvType != null ? recvType : "");
+            row.createCell(7).setCellValue(recvAddr);
+            row.createCell(8).setCellValue(1);
+            row.createCell(9).setCellValue(flowName);
+            row.createCell(10).setCellValue("");
+            row.createCell(11).setCellValue(flow.getPackageId() != null ? flow.getPackageId() : "");
+            row.createCell(12).setCellValue(used.isEmpty() ? "No usage data"
+                    : DateFilterUtil.formatCpiDate(used));
+        }
+
+        for (int i = 0; i < headers.length; i++) {
+            sheet.autoSizeColumn(i);
+        }
+        log.info("Unique Interfaces sheet: {} rows", rowNum - 1);
     }
 
     // =========================================================================

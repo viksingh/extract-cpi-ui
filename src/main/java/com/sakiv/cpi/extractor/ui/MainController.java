@@ -32,6 +32,7 @@ import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -115,6 +116,7 @@ public class MainController {
     @FXML private TableView<CredentialRow> credentialsTable;
     @FXML private TableView<EccEndpointRow> eccEndpointsTable;
     @FXML private TableView<FlowChainRow> flowChainsTable;
+    @FXML private TableView<UniqueInterfaceRow> uniqueInterfacesTable;
     @FXML private TableView<PackageDepRow> packageDepsTable;
     @FXML private TableView<ApiCallRow> apiCallsTable;
 
@@ -162,6 +164,7 @@ public class MainController {
         initCredentialsTable();
         initEccEndpointsTable();
         initFlowChainsTable();
+        initUniqueInterfacesTable();
         initPackageDepsTable();
         initApiCallsTable();
 
@@ -1530,6 +1533,57 @@ public class MainController {
     }
 
     @SuppressWarnings("unchecked")
+    private void initUniqueInterfacesTable() {
+        TableColumn<UniqueInterfaceRow, String> entryCol = new TableColumn<>("Entry iFlow");
+        entryCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().entryFlow()));
+        entryCol.setMinWidth(200); entryCol.setPrefWidth(250);
+
+        TableColumn<UniqueInterfaceRow, String> entryPkgCol = new TableColumn<>("Entry Package");
+        entryPkgCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().entryPackage()));
+        entryPkgCol.setPrefWidth(180);
+
+        TableColumn<UniqueInterfaceRow, String> senderCol = new TableColumn<>("Sender Adapter");
+        senderCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().senderAdapter()));
+        senderCol.setPrefWidth(120);
+
+        TableColumn<UniqueInterfaceRow, String> exitCol = new TableColumn<>("Exit iFlow");
+        exitCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().exitFlow()));
+        exitCol.setMinWidth(200); exitCol.setPrefWidth(250);
+
+        TableColumn<UniqueInterfaceRow, String> exitPkgCol = new TableColumn<>("Exit Package");
+        exitPkgCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().exitPackage()));
+        exitPkgCol.setPrefWidth(180);
+
+        TableColumn<UniqueInterfaceRow, String> recvCol = new TableColumn<>("Receiver Adapter");
+        recvCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().receiverAdapter()));
+        recvCol.setPrefWidth(120);
+
+        TableColumn<UniqueInterfaceRow, String> lengthCol = new TableColumn<>("Chain Length");
+        lengthCol.setCellValueFactory(cd -> new SimpleStringProperty(String.valueOf(cd.getValue().chainLength())));
+        lengthCol.setPrefWidth(90);
+
+        TableColumn<UniqueInterfaceRow, String> pathCol = new TableColumn<>("Chain Path");
+        pathCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().chainPath()));
+        pathCol.setPrefWidth(400);
+
+        TableColumn<UniqueInterfaceRow, String> intermediateCol = new TableColumn<>("Intermediate Flows");
+        intermediateCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().intermediateFlows()));
+        intermediateCol.setPrefWidth(250);
+
+        TableColumn<UniqueInterfaceRow, String> pkgsCol = new TableColumn<>("Packages Involved");
+        pkgsCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().packagesInvolved()));
+        pkgsCol.setPrefWidth(250);
+
+        TableColumn<UniqueInterfaceRow, String> lastUsedCol = new TableColumn<>("Last Used");
+        lastUsedCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().lastUsed()));
+        lastUsedCol.setPrefWidth(160);
+
+        uniqueInterfacesTable.getColumns().addAll(entryCol, entryPkgCol, senderCol,
+                exitCol, exitPkgCol, recvCol, lengthCol, pathCol, intermediateCol, pkgsCol, lastUsedCol);
+        uniqueInterfacesTable.setColumnResizePolicy(TableView.UNCONSTRAINED_RESIZE_POLICY);
+    }
+
+    @SuppressWarnings("unchecked")
     private void initPackageDepsTable() {
         TableColumn<PackageDepRow, String> srcPkgCol = new TableColumn<>("Source Package");
         srcPkgCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().sourcePackage()));
@@ -1713,11 +1767,85 @@ public class MainController {
         }
         packageDepsTable.setItems(FXCollections.observableArrayList(pkgDepRows));
 
+        // Unique Interfaces tab — end-to-end interface tracing
+        List<DependencyAnalysisService.UniqueInterfacePath> uniquePaths =
+                analysisService.traceUniqueInterfaces(graph);
+        Set<String> flowsInChains = new HashSet<>();
+        List<UniqueInterfaceRow> uiRows = new ArrayList<>();
+        for (DependencyAnalysisService.UniqueInterfacePath uip : uniquePaths) {
+            IntegrationFlow entry = uip.getEntryFlow();
+            IntegrationFlow exit = uip.getExitFlow();
+            String entryPkg = pkgIdToName.getOrDefault(
+                    entry.getPackageId() != null ? entry.getPackageId() : "", entry.getPackageId());
+            String exitPkg = pkgIdToName.getOrDefault(
+                    exit.getPackageId() != null ? exit.getPackageId() : "", exit.getPackageId());
+            // Compute last used across all flows in this chain
+            String chainLastUsed = "";
+            for (IntegrationFlow f : uip.getFlows()) {
+                String key = f.getId() != null ? f.getId() : f.getName();
+                String used = flowLastUsed.getOrDefault(key, "");
+                if (used.isEmpty() && f.getName() != null) used = flowLastUsed.getOrDefault(f.getName(), "");
+                if (used.compareTo(chainLastUsed) > 0) chainLastUsed = used;
+                flowsInChains.add(f.getId());
+            }
+            String lastUsedDisplay = chainLastUsed.isEmpty() ? "No usage data"
+                    : DateFilterUtil.formatCpiDate(chainLastUsed);
+            uiRows.add(new UniqueInterfaceRow(
+                    entry.getName() != null ? entry.getName() : entry.getId(),
+                    entryPkg != null ? entryPkg : "",
+                    uip.getSenderAdapterType(), uip.getSenderAddress(),
+                    exit.getName() != null ? exit.getName() : exit.getId(),
+                    exitPkg != null ? exitPkg : "",
+                    uip.getReceiverAdapterType(), uip.getReceiverAddress(),
+                    uip.getChainPath(), uip.getChainLength(),
+                    uip.getIntermediateFlows(), uip.getPackagesInvolved(),
+                    lastUsedDisplay));
+        }
+
+        // Add standalone flows not part of any chain
+        for (IntegrationFlow flow : result.getAllFlows()) {
+            if (flowsInChains.contains(flow.getId())) continue;
+            if (flow.getIflowContent() == null) continue;
+            // Find external sender and receiver adapters
+            String senderType = null, senderAddr = "";
+            String recvType = null, recvAddr = "";
+            for (IFlowAdapter adapter : flow.getIflowContent().getAdapters()) {
+                if ("sender".equalsIgnoreCase(adapter.getDirection())
+                        && !isInternalAdapterType(adapter.getAdapterType())) {
+                    senderType = adapter.getAdapterType() != null ? adapter.getAdapterType() : "Unknown";
+                    senderAddr = adapter.getAddress() != null ? adapter.getAddress() : "";
+                }
+                if ("receiver".equalsIgnoreCase(adapter.getDirection())
+                        && !isInternalAdapterType(adapter.getAdapterType())) {
+                    recvType = adapter.getAdapterType() != null ? adapter.getAdapterType() : "Unknown";
+                    recvAddr = adapter.getAddress() != null ? adapter.getAddress() : "";
+                }
+            }
+            if (senderType == null && recvType == null) continue;
+            String flowName = flow.getName() != null ? flow.getName() : flow.getId();
+            String pkg = pkgIdToName.getOrDefault(
+                    flow.getPackageId() != null ? flow.getPackageId() : "", "");
+            String key = flow.getId() != null ? flow.getId() : flow.getName();
+            String used = flowLastUsed.getOrDefault(key, "");
+            if (used.isEmpty() && flow.getName() != null) used = flowLastUsed.getOrDefault(flow.getName(), "");
+            String lastUsedDisplay = used.isEmpty() ? "No usage data" : DateFilterUtil.formatCpiDate(used);
+            uiRows.add(new UniqueInterfaceRow(
+                    flowName, pkg != null ? pkg : "",
+                    senderType != null ? senderType : "", senderAddr,
+                    flowName, pkg != null ? pkg : "",
+                    recvType != null ? recvType : "", recvAddr,
+                    flowName, 1, "", flow.getPackageId() != null ? flow.getPackageId() : "",
+                    lastUsedDisplay));
+        }
+        uniqueInterfacesTable.setItems(FXCollections.observableArrayList(uiRows));
+        appendLog(String.format("Unique Interfaces: %d entries (%d chains, %d standalone).",
+                uiRows.size(), uniquePaths.size(), uiRows.size() - uniquePaths.size()));
+
         // Append dependency summary to the summary tab
         String depSummary = graph.getSummary();
         summaryTextArea.appendText("\n" + depSummary);
 
-        log.info("Dependency tabs populated: {} package deps", pkgDepRows.size());
+        log.info("Dependency tabs populated: {} package deps, {} unique interfaces", pkgDepRows.size(), uiRows.size());
     }
 
     // =========================================================================
@@ -1857,6 +1985,14 @@ public class MainController {
                                  String sourceLastUsed, String targetLastUsed,
                                  String linkStatus) {}
 
+    public record UniqueInterfaceRow(String entryFlow, String entryPackage,
+                                      String senderAdapter, String senderAddress,
+                                      String exitFlow, String exitPackage,
+                                      String receiverAdapter, String receiverAddress,
+                                      String chainPath, int chainLength,
+                                      String intermediateFlows, String packagesInvolved,
+                                      String lastUsed) {}
+
     // =========================================================================
     // E4: Credential Detection Helpers
     // =========================================================================
@@ -1873,6 +2009,12 @@ public class MainController {
             "pgp.secret.keyring.alias", "pgpsecretkeyringalias",
             "pgp.public.keyring.alias", "pgppublickeyringalias"
     );
+
+    private static boolean isInternalAdapterType(String type) {
+        if (type == null) return false;
+        String lower = type.toLowerCase();
+        return lower.contains("processdirect") || lower.contains("jms");
+    }
 
     private static boolean isCredentialProperty(String key) {
         String lower = key.toLowerCase();
