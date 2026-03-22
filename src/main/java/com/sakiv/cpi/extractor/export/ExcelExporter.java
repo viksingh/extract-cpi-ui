@@ -1084,6 +1084,7 @@ public class ExcelExporter {
             for (var adapter : flow.getIflowContent().getAdapters()) {
                 String type = adapter.getAdapterType() != null ? adapter.getAdapterType().toLowerCase() : "";
                 String address = resolveChainAddress(adapter, type);
+                address = resolveExternalizedParams(address, flow.getConfigurations());
                 String dir = adapter.getDirection() != null ? adapter.getDirection() : "";
                 if (address.isEmpty()) continue;
 
@@ -1190,6 +1191,33 @@ public class ExcelExporter {
             }
         }
         return rowNum;
+    }
+
+    /**
+     * Resolve {{paramName}} placeholders in an address using the flow's externalized configurations.
+     */
+    private static String resolveExternalizedParams(String address, java.util.List<Configuration> configs) {
+        if (address == null || !address.contains("{{") || configs == null) return address;
+
+        // Build config lookup map
+        java.util.Map<String, String> configMap = new java.util.LinkedHashMap<>();
+        for (Configuration cfg : configs) {
+            if (cfg.getParameterKey() != null && cfg.getParameterValue() != null) {
+                configMap.put(cfg.getParameterKey(), cfg.getParameterValue());
+            }
+        }
+
+        // Replace all {{key}} occurrences
+        String resolved = address;
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\{\\{(.+?)\\}\\}").matcher(address);
+        while (matcher.find()) {
+            String paramName = matcher.group(1);
+            String value = configMap.get(paramName);
+            if (value != null && !value.isBlank()) {
+                resolved = resolved.replace("{{" + paramName + "}}", value);
+            }
+        }
+        return resolved;
     }
 
     private static String resolveChainAddress(IFlowAdapter adapter, String typeLower) {

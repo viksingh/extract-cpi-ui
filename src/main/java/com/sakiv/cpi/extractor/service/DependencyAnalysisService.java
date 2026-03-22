@@ -67,7 +67,8 @@ public class DependencyAnalysisService {
             for (IFlowAdapter adapter : content.getAdapters()) {
                 if ("ProcessDirect".equalsIgnoreCase(adapter.getAdapterType())
                         && "sender".equalsIgnoreCase(adapter.getDirection())) {
-                    String address = normalizeAddress(resolveAddress(adapter));
+                    String address = normalizeAddress(resolveExternalizedParams(
+                            resolveAddress(adapter), flow.getConfigurations()));
                     if (address != null) {
                         senderAddresses.put(address, flow.getId());
                         senderFlowNames.put(address, flow.getName());
@@ -83,7 +84,8 @@ public class DependencyAnalysisService {
             for (IFlowAdapter adapter : content.getAdapters()) {
                 if ("ProcessDirect".equalsIgnoreCase(adapter.getAdapterType())
                         && "receiver".equalsIgnoreCase(adapter.getDirection())) {
-                    String address = normalizeAddress(resolveAddress(adapter));
+                    String address = normalizeAddress(resolveExternalizedParams(
+                            resolveAddress(adapter), flow.getConfigurations()));
                     if (address == null) continue;
 
                     String targetFlowId = senderAddresses.get(address);
@@ -126,7 +128,8 @@ public class DependencyAnalysisService {
                 String type = adapter.getAdapterType();
                 if (type == null || !type.toLowerCase().contains("jms")) continue;
 
-                String queueName = resolveJmsQueue(adapter);
+                String queueName = resolveExternalizedParams(
+                        resolveJmsQueue(adapter), flow.getConfigurations());
                 if (queueName == null) continue;
 
                 if ("receiver".equalsIgnoreCase(adapter.getDirection())) {
@@ -218,6 +221,28 @@ public class DependencyAnalysisService {
             }
         }
         return null;
+    }
+
+    private String resolveExternalizedParams(String value, List<Configuration> configs) {
+        if (value == null || !value.contains("{{") || configs == null) return value;
+
+        Map<String, String> configMap = new HashMap<>();
+        for (Configuration cfg : configs) {
+            if (cfg.getParameterKey() != null && cfg.getParameterValue() != null) {
+                configMap.put(cfg.getParameterKey(), cfg.getParameterValue());
+            }
+        }
+
+        String resolved = value;
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\{\\{(.+?)\\}\\}").matcher(value);
+        while (matcher.find()) {
+            String paramName = matcher.group(1);
+            String paramValue = configMap.get(paramName);
+            if (paramValue != null && !paramValue.isBlank()) {
+                resolved = resolved.replace("{{" + paramName + "}}", paramValue);
+            }
+        }
+        return resolved;
     }
 
     private String normalizeAddress(String address) {
