@@ -242,7 +242,11 @@ public class MainController {
         if (p.getBasicUsername() != null) basicUsernameField.setText(p.getBasicUsername());
         if (p.getBasicPassword() != null) basicPasswordField.setText(p.getBasicPassword());
         if (p.getOutputDir() != null && !p.getOutputDir().isBlank()) outputDirField.setText(p.getOutputDir());
-        if (p.getFilenamePrefix() != null && !p.getFilenamePrefix().isBlank()) filenamePrefixField.setText(p.getFilenamePrefix());
+        if (p.getFilenamePrefix() != null && !p.getFilenamePrefix().isBlank()) {
+            filenamePrefixField.setText(p.getFilenamePrefix());
+        } else if (p.getName() != null && !p.getName().isBlank()) {
+            filenamePrefixField.setText(p.getName().toLowerCase() + "_cpi_artifacts");
+        }
     }
 
     @FXML
