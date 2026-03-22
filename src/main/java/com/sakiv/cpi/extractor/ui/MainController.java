@@ -1813,12 +1813,12 @@ public class MainController {
                 if ("sender".equalsIgnoreCase(adapter.getDirection())
                         && !isInternalAdapterType(adapter.getAdapterType())) {
                     senderType = adapter.getAdapterType() != null ? adapter.getAdapterType() : "Unknown";
-                    senderAddr = adapter.getAddress() != null ? adapter.getAddress() : "";
+                    senderAddr = resolveAdapterAddress(adapter, flow);
                 }
                 if ("receiver".equalsIgnoreCase(adapter.getDirection())
                         && !isInternalAdapterType(adapter.getAdapterType())) {
                     recvType = adapter.getAdapterType() != null ? adapter.getAdapterType() : "Unknown";
-                    recvAddr = adapter.getAddress() != null ? adapter.getAddress() : "";
+                    recvAddr = resolveAdapterAddress(adapter, flow);
                 }
             }
             if (senderType == null && recvType == null) continue;
@@ -2014,6 +2014,33 @@ public class MainController {
         if (type == null) return false;
         String lower = type.toLowerCase();
         return lower.contains("processdirect") || lower.contains("jms");
+    }
+
+    private static String resolveAdapterAddress(IFlowAdapter adapter, IntegrationFlow flow) {
+        // Try direct address field
+        String address = adapter.getAddress();
+        // Fallback to properties map
+        if ((address == null || address.isBlank()) && adapter.getProperties() != null) {
+            for (Map.Entry<String, String> entry : adapter.getProperties().entrySet()) {
+                if (entry.getKey().equalsIgnoreCase("address")
+                        || entry.getKey().equalsIgnoreCase("EndpointAddress")
+                        || entry.getKey().equalsIgnoreCase("url")
+                        || entry.getKey().equalsIgnoreCase("path")) {
+                    String val = entry.getValue();
+                    if (val != null && !val.isBlank()) { address = val; break; }
+                }
+            }
+        }
+        if (address == null) return "";
+        // Resolve externalized {{param}} placeholders
+        if (address.contains("{{") && flow.getConfigurations() != null) {
+            for (Configuration cfg : flow.getConfigurations()) {
+                if (cfg.getParameterKey() != null && cfg.getParameterValue() != null) {
+                    address = address.replace("{{" + cfg.getParameterKey() + "}}", cfg.getParameterValue());
+                }
+            }
+        }
+        return address;
     }
 
     private static boolean isCredentialProperty(String key) {

@@ -194,28 +194,39 @@ public class CpiApiService {
         // Deduplicate flow names to ensure each iFlow is called only once
         List<String> uniqueFlows = flowNames.stream().distinct().collect(Collectors.toList());
 
-        log.info("Fetching Message Processing Logs (last 90 days) for {} unique flows...", uniqueFlows.size());
+        int parallelThreads = config.getInt("api.parallel.threads", 8);
+        log.info("Fetching Message Processing Logs (last 90 days) for {} unique flows ({} threads)...",
+                uniqueFlows.size(), parallelThreads);
         String baseEndpoint = config.get("cpi.api.messageProcessingLogs", "/api/v1/MessageProcessingLogs");
-        List<MessageProcessingLog> allLogs = new ArrayList<>();
+        List<MessageProcessingLog> allLogs = Collections.synchronizedList(new ArrayList<>());
 
         // Filter to last 90 days (Cloud Foundry retention period)
         String since = Instant.now().minus(90, ChronoUnit.DAYS).truncatedTo(ChronoUnit.SECONDS)
                 .toString().replace("Z", "");  // OData datetime format: yyyy-MM-ddTHH:mm:ss
 
-        for (int i = 0; i < uniqueFlows.size(); i++) {
-            String name = uniqueFlows.get(i);
-            String filter = "IntegrationFlowName eq '" + name.replace("'", "''")
-                    + "' and LogEnd gt datetime'" + since + "'";
-            String encodedFilter = URLEncoder.encode(filter, StandardCharsets.UTF_8);
-            String endpoint = baseEndpoint + "?$filter=" + encodedFilter + "&$top=20";
-            log.info("Fetching MPL {}/{}: {}", i + 1, uniqueFlows.size(), name);
-            try {
-                List<MessageProcessingLog> logs = fetchAll(endpoint, MessageProcessingLog.class);
-                allLogs.addAll(logs);
-            } catch (IOException e) {
-                log.warn("Failed to fetch MPL for flow '{}': {}", name, e.getMessage());
-            }
+        AtomicInteger counter = new AtomicInteger(0);
+        ExecutorService mplExecutor = Executors.newFixedThreadPool(
+                Math.min(parallelThreads, Math.max(1, uniqueFlows.size())));
+
+        List<CompletableFuture<Void>> mplFutures = new ArrayList<>();
+        for (String name : uniqueFlows) {
+            mplFutures.add(CompletableFuture.runAsync(() -> {
+                int idx = counter.incrementAndGet();
+                String filter = "IntegrationFlowName eq '" + name.replace("'", "''")
+                        + "' and LogEnd gt datetime'" + since + "'";
+                String encodedFilter = URLEncoder.encode(filter, StandardCharsets.UTF_8);
+                String endpoint = baseEndpoint + "?$filter=" + encodedFilter + "&$top=20";
+                log.info("Fetching MPL {}/{}: {}", idx, uniqueFlows.size(), name);
+                try {
+                    List<MessageProcessingLog> logs = fetchAll(endpoint, MessageProcessingLog.class);
+                    allLogs.addAll(logs);
+                } catch (IOException e) {
+                    log.warn("Failed to fetch MPL for flow '{}': {}", name, e.getMessage());
+                }
+            }, mplExecutor));
         }
+        CompletableFuture.allOf(mplFutures.toArray(new CompletableFuture[0])).join();
+        mplExecutor.shutdown();
 
         log.info("Found {} Message Processing Log entries for {} flows", allLogs.size(), uniqueFlows.size());
         return allLogs;

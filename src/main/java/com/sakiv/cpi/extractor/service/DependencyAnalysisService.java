@@ -228,7 +228,9 @@ public class DependencyAnalysisService {
 
                 // This flow has an external sender — it's an entry point
                 String senderType = adapter.getAdapterType() != null ? adapter.getAdapterType() : "Unknown";
-                String senderAddress = adapter.getAddress() != null ? adapter.getAddress() : "";
+                String rawAddr = resolveAddress(adapter);
+                String senderAddress = resolveExternalizedParams(rawAddr, flow.getConfigurations());
+                if (senderAddress == null) senderAddress = "";
 
                 // DFS to find all end-to-end paths
                 List<IntegrationFlow> path = new ArrayList<>();
@@ -325,7 +327,9 @@ public class DependencyAnalysisService {
             if (!"receiver".equalsIgnoreCase(adapter.getDirection())) continue;
             if (isInternalAdapterType(adapter.getAdapterType())) continue;
             String type = adapter.getAdapterType() != null ? adapter.getAdapterType() : "Unknown";
-            String address = adapter.getAddress() != null ? adapter.getAddress() : "";
+            String rawAddr = resolveAddress(adapter);
+            String address = resolveExternalizedParams(rawAddr, flow.getConfigurations());
+            if (address == null) address = "";
             receivers.add(new String[]{type, address});
         }
         return receivers;
