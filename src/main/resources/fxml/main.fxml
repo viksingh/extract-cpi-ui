@@ -39,30 +39,35 @@
             <TextField fx:id="tenantUrlField" promptText="https://tenant.it-cpiXXX.cfapps.region.hana.ondemand.com"
                        GridPane.columnIndex="1" GridPane.rowIndex="0" GridPane.columnSpan="3"/>
 
-            <Label text="Auth Type:" GridPane.columnIndex="0" GridPane.rowIndex="1"/>
-            <ComboBox fx:id="authTypeCombo" GridPane.columnIndex="1" GridPane.rowIndex="1"
+            <Label text="API Portal URL:" GridPane.columnIndex="0" GridPane.rowIndex="1"/>
+            <TextField fx:id="apimBaseUrlField"
+                       promptText="https://subdomain.apimanagement.region.hana.ondemand.com (optional)"
+                       GridPane.columnIndex="1" GridPane.rowIndex="1" GridPane.columnSpan="3"/>
+
+            <Label text="Auth Type:" GridPane.columnIndex="0" GridPane.rowIndex="2"/>
+            <ComboBox fx:id="authTypeCombo" GridPane.columnIndex="1" GridPane.rowIndex="2"
                       onAction="#onAuthTypeChanged"/>
 
             <!-- OAuth2 fields -->
-            <Label fx:id="oauthTokenUrlLabel" text="OAuth2 Token URL:" GridPane.columnIndex="0" GridPane.rowIndex="2"/>
+            <Label fx:id="oauthTokenUrlLabel" text="OAuth2 Token URL:" GridPane.columnIndex="0" GridPane.rowIndex="3"/>
             <TextField fx:id="oauthTokenUrlField" promptText="https://subdomain.authentication.region.hana.ondemand.com/oauth/token"
-                       GridPane.columnIndex="1" GridPane.rowIndex="2" GridPane.columnSpan="3"/>
+                       GridPane.columnIndex="1" GridPane.rowIndex="3" GridPane.columnSpan="3"/>
 
-            <Label fx:id="oauthClientIdLabel" text="Client ID:" GridPane.columnIndex="0" GridPane.rowIndex="3"/>
-            <TextField fx:id="oauthClientIdField" GridPane.columnIndex="1" GridPane.rowIndex="3"/>
+            <Label fx:id="oauthClientIdLabel" text="Client ID:" GridPane.columnIndex="0" GridPane.rowIndex="4"/>
+            <TextField fx:id="oauthClientIdField" GridPane.columnIndex="1" GridPane.rowIndex="4"/>
 
-            <Label fx:id="oauthClientSecretLabel" text="Client Secret:" GridPane.columnIndex="2" GridPane.rowIndex="3"/>
-            <PasswordField fx:id="oauthClientSecretField" GridPane.columnIndex="3" GridPane.rowIndex="3"/>
+            <Label fx:id="oauthClientSecretLabel" text="Client Secret:" GridPane.columnIndex="2" GridPane.rowIndex="4"/>
+            <PasswordField fx:id="oauthClientSecretField" GridPane.columnIndex="3" GridPane.rowIndex="4"/>
 
             <!-- Basic auth fields (hidden by default) -->
-            <Label fx:id="basicUsernameLabel" text="Username:" GridPane.columnIndex="0" GridPane.rowIndex="4"
+            <Label fx:id="basicUsernameLabel" text="Username:" GridPane.columnIndex="0" GridPane.rowIndex="5"
                    visible="false" managed="false"/>
-            <TextField fx:id="basicUsernameField" GridPane.columnIndex="1" GridPane.rowIndex="4"
+            <TextField fx:id="basicUsernameField" GridPane.columnIndex="1" GridPane.rowIndex="5"
                        visible="false" managed="false"/>
 
-            <Label fx:id="basicPasswordLabel" text="Password:" GridPane.columnIndex="2" GridPane.rowIndex="4"
+            <Label fx:id="basicPasswordLabel" text="Password:" GridPane.columnIndex="2" GridPane.rowIndex="5"
                    visible="false" managed="false"/>
-            <PasswordField fx:id="basicPasswordField" GridPane.columnIndex="3" GridPane.rowIndex="4"
+            <PasswordField fx:id="basicPasswordField" GridPane.columnIndex="3" GridPane.rowIndex="5"
                            visible="false" managed="false"/>
         </GridPane>
     </TitledPane>
@@ -92,7 +97,6 @@
                     <ComboBox fx:id="dateFilterModeCombo" prefWidth="200"/>
                     <DatePicker fx:id="sinceDatePicker" promptText="Select date..." prefWidth="150"/>
                 </HBox>
-                <Separator/>
             </VBox>
         </TitledPane>
 
@@ -201,6 +205,12 @@
         </Tab>
         <Tab text="Package Dependencies">
             <TableView fx:id="packageDepsTable" styleClass="data-table"/>
+        </Tab>
+        <Tab text="API Proxies">
+            <TableView fx:id="apiProxiesTable" styleClass="data-table"/>
+        </Tab>
+        <Tab text="API-iFlow Links">
+            <TableView fx:id="apiIFlowLinksTable" styleClass="data-table"/>
         </Tab>
         <Tab text="API Calls">
             <TableView fx:id="apiCallsTable" styleClass="data-table"/>

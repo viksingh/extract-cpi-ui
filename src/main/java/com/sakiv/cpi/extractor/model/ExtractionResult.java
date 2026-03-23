@@ -25,6 +25,9 @@ public class ExtractionResult {
     private List<MessageProcessingLog> messageProcessingLogs = new ArrayList<>();
     private List<CpiHttpClient.ApiCallRecord> apiCallLog = new ArrayList<>();
 
+    private List<ApiProxy> apiProxies = new ArrayList<>();
+    private List<ApiProduct> apiProducts = new ArrayList<>();
+
     private int totalPackages;
     private int totalFlows;
     private int totalValueMappings;
@@ -100,4 +103,10 @@ public class ExtractionResult {
 
     public List<CpiHttpClient.ApiCallRecord> getApiCallLog() { return apiCallLog; }
     public void setApiCallLog(List<CpiHttpClient.ApiCallRecord> apiCallLog) { this.apiCallLog = apiCallLog; }
+
+    public List<ApiProxy> getApiProxies() { return apiProxies; }
+    public void setApiProxies(List<ApiProxy> apiProxies) { this.apiProxies = apiProxies; }
+
+    public List<ApiProduct> getApiProducts() { return apiProducts; }
+    public void setApiProducts(List<ApiProduct> apiProducts) { this.apiProducts = apiProducts; }
 }

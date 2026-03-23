@@ -110,6 +110,12 @@ public class ExcelExporter {
                 createCredentialsSheet(workbook, headerStyle, result);
             }
 
+            // Sheet: API Proxies
+            if (result.getApiProxies() != null && !result.getApiProxies().isEmpty()) {
+                createApiProxiesSheet(workbook, headerStyle, result);
+                createApiIFlowLinksSheet(workbook, headerStyle, result);
+            }
+
             // Sheet: Message Processing Logs (raw)
             if (result.getMessageProcessingLogs() != null && !result.getMessageProcessingLogs().isEmpty()) {
                 createMessageLogsSheet(workbook, headerStyle, result.getMessageProcessingLogs());
@@ -1393,6 +1399,166 @@ public class ExcelExporter {
             }
         }
         return resolved;
+    }
+
+    // =========================================================================
+    // API Proxies Sheet
+    // =========================================================================
+
+    private void createApiProxiesSheet(Workbook wb, CellStyle headerStyle, ExtractionResult result) {
+        Sheet sheet = wb.createSheet("API Proxies");
+        String[] headers = {
+                "Name", "Title", "Base Path", "Target URL", "State", "Published",
+                "Virtual Host", "Version", "Products", "Created By", "Modified At"
+        };
+        createHeaderRow(sheet, headerStyle, headers);
+
+        int rowNum = 1;
+        for (ApiProxy proxy : result.getApiProxies()) {
+            Row row = sheet.createRow(rowNum++);
+            int col = 0;
+            row.createCell(col++).setCellValue(nullSafe(proxy.getName()));
+            row.createCell(col++).setCellValue(nullSafe(proxy.getTitle()));
+            row.createCell(col++).setCellValue(nullSafe(proxy.getBasePath()));
+            row.createCell(col++).setCellValue(nullSafe(proxy.getTargetUrl()));
+            row.createCell(col++).setCellValue(nullSafe(proxy.getState()));
+            row.createCell(col++).setCellValue(proxy.isPublished() ? "Yes" : "No");
+            row.createCell(col++).setCellValue(nullSafe(proxy.getVirtualHost()));
+            row.createCell(col++).setCellValue(nullSafe(proxy.getVersion()));
+            row.createCell(col++).setCellValue(nullSafe(String.join(", ", proxy.getApiProducts())));
+            row.createCell(col++).setCellValue(nullSafe(proxy.getCreatedBy()));
+            row.createCell(col++).setCellValue(nullSafe(proxy.getModifiedAt()));
+        }
+        autoSizeColumns(sheet, headers.length);
+        if (rowNum > 1) {
+            sheet.setAutoFilter(new CellRangeAddress(0, 0, 0, headers.length - 1));
+        }
+        log.info("API Proxies sheet: {} rows", rowNum - 1);
+    }
+
+    // =========================================================================
+    // API-iFlow Links Sheet
+    // =========================================================================
+
+    private void createApiIFlowLinksSheet(Workbook wb, CellStyle headerStyle, ExtractionResult result) {
+        Sheet sheet = wb.createSheet("API-iFlow Links");
+        String[] headers = {
+                "API Proxy", "Base Path", "Direction", "iFlow", "Package",
+                "Matched URL", "API Products", "Proxy State", "iFlow Status"
+        };
+        createHeaderRow(sheet, headerStyle, headers);
+
+        // Build flow-to-package and runtime status maps
+        java.util.Map<String, String> flowToPackage = new java.util.LinkedHashMap<>();
+        java.util.Map<String, String> flowRuntimeStatus = new java.util.LinkedHashMap<>();
+        for (IntegrationPackage pkg : result.getPackages()) {
+            for (IntegrationFlow f : pkg.getIntegrationFlows()) {
+                String flowName = f.getName() != null ? f.getName() : f.getId();
+                flowToPackage.put(flowName, pkg.getName() != null ? pkg.getName() : pkg.getId());
+            }
+        }
+        for (IntegrationFlow flow : result.getAllFlows()) {
+            String rt = flow.getRuntimeStatus() != null ? flow.getRuntimeStatus() : "UNKNOWN";
+            if (flow.getName() != null) flowRuntimeStatus.put(flow.getName(), rt);
+            if (flow.getId() != null) flowRuntimeStatus.put(flow.getId(), rt);
+        }
+
+        int rowNum = 1;
+        java.util.Set<String> writtenLinks = new java.util.HashSet<>();
+
+        for (ApiProxy proxy : result.getApiProxies()) {
+            String proxyName = proxy.getName() != null ? proxy.getName() : "";
+            String basePath = proxy.getBasePath() != null ? proxy.getBasePath() : "";
+            String targetUrl = proxy.getTargetUrl() != null ? proxy.getTargetUrl() : "";
+            String products = String.join(", ", proxy.getApiProducts());
+
+            // Direction 1: API proxy targets a CPI iFlow (targetUrl matches sender address)
+            if (!targetUrl.isBlank()) {
+                String targetPath = extractPath(targetUrl);
+                for (IntegrationFlow flow : result.getAllFlows()) {
+                    if (!flow.isBundleParsed() || flow.getIflowContent() == null) continue;
+                    for (IFlowAdapter adapter : flow.getIflowContent().getAdapters()) {
+                        if (!"sender".equalsIgnoreCase(adapter.getDirection())) continue;
+                        if (isInternalAdapterType(adapter.getAdapterType())) continue;
+                        String addr = resolveAdapterAddress(adapter, flow);
+                        if (addr.isBlank()) continue;
+                        if (targetUrl.contains(addr) || addr.contains(targetPath)
+                                || (!targetPath.isBlank() && addr.contains(targetPath))) {
+                            String flowName = flow.getName() != null ? flow.getName() : flow.getId();
+                            String linkKey = proxyName + "|inbound|" + flowName;
+                            if (writtenLinks.add(linkKey)) {
+                                Row row = sheet.createRow(rowNum++);
+                                int col = 0;
+                                row.createCell(col++).setCellValue(nullSafe(proxyName));
+                                row.createCell(col++).setCellValue(nullSafe(basePath));
+                                row.createCell(col++).setCellValue("API → iFlow");
+                                row.createCell(col++).setCellValue(nullSafe(flowName));
+                                row.createCell(col++).setCellValue(nullSafe(flowToPackage.getOrDefault(flowName, "")));
+                                row.createCell(col++).setCellValue(nullSafe(targetUrl));
+                                row.createCell(col++).setCellValue(nullSafe(products));
+                                row.createCell(col++).setCellValue(nullSafe(proxy.getState()));
+                                row.createCell(col++).setCellValue(nullSafe(flowRuntimeStatus.getOrDefault(flowName, "UNKNOWN")));
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Direction 2: iFlow calls API proxy (HTTP receiver URL matches basePath)
+            if (!basePath.isBlank()) {
+                for (IntegrationFlow flow : result.getAllFlows()) {
+                    if (!flow.isBundleParsed() || flow.getIflowContent() == null) continue;
+                    for (IFlowAdapter adapter : flow.getIflowContent().getAdapters()) {
+                        if (!"receiver".equalsIgnoreCase(adapter.getDirection())) continue;
+                        String type = adapter.getAdapterType() != null ? adapter.getAdapterType().toLowerCase() : "";
+                        if (!type.contains("http") && !type.contains("rest") && !type.contains("odata")) continue;
+                        String addr = resolveAdapterAddress(adapter, flow);
+                        if (addr.isBlank()) continue;
+                        String addrPath = extractPath(addr);
+                        if (addrPath.contains(basePath) || basePath.equals(addrPath)) {
+                            String flowName = flow.getName() != null ? flow.getName() : flow.getId();
+                            String linkKey = proxyName + "|outbound|" + flowName;
+                            if (writtenLinks.add(linkKey)) {
+                                Row row = sheet.createRow(rowNum++);
+                                int col = 0;
+                                row.createCell(col++).setCellValue(nullSafe(proxyName));
+                                row.createCell(col++).setCellValue(nullSafe(basePath));
+                                row.createCell(col++).setCellValue("iFlow → API");
+                                row.createCell(col++).setCellValue(nullSafe(flowName));
+                                row.createCell(col++).setCellValue(nullSafe(flowToPackage.getOrDefault(flowName, "")));
+                                row.createCell(col++).setCellValue(nullSafe(addr));
+                                row.createCell(col++).setCellValue(nullSafe(products));
+                                row.createCell(col++).setCellValue(nullSafe(proxy.getState()));
+                                row.createCell(col++).setCellValue(nullSafe(flowRuntimeStatus.getOrDefault(flowName, "UNKNOWN")));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        autoSizeColumns(sheet, headers.length);
+        if (rowNum > 1) {
+            sheet.setAutoFilter(new CellRangeAddress(0, 0, 0, headers.length - 1));
+        }
+        log.info("API-iFlow Links sheet: {} rows", rowNum - 1);
+    }
+
+    private static String extractPath(String url) {
+        if (url == null || url.isBlank()) return "";
+        try {
+            java.net.URI uri = new java.net.URI(url);
+            String path = uri.getPath();
+            return path != null ? path : "";
+        } catch (Exception e) {
+            // Not a full URL — might be a path already
+            int schemeEnd = url.indexOf("://");
+            if (schemeEnd >= 0) {
+                int pathStart = url.indexOf('/', schemeEnd + 3);
+                return pathStart >= 0 ? url.substring(pathStart) : "";
+            }
+            return url;
+        }
     }
 
     private static String resolveChainAddress(IFlowAdapter adapter, String typeLower) {

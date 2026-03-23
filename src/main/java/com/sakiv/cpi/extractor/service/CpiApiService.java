@@ -445,10 +445,112 @@ public class CpiApiService {
             }
         }
 
+        // 6. Fetch API Management artifacts (optional)
+        if (config.getBoolean("extract.apim", false)) {
+            String apimBaseUrl = config.get("apim.base.url", "");
+            if (!apimBaseUrl.isBlank()) {
+                cb.onProgress("Fetching API Proxies...", 0.82);
+                try {
+                    List<ApiProxy> proxies = fetchApiProxies(apimBaseUrl);
+                    result.setApiProxies(proxies);
+
+                    cb.onProgress("Fetching API Products...", 0.86);
+                    List<ApiProduct> products = fetchApiProducts(apimBaseUrl);
+                    result.setApiProducts(products);
+
+                    // Enrich proxies with product membership
+                    for (ApiProduct product : products) {
+                        for (String proxyName : product.getApiProxies()) {
+                            proxies.stream()
+                                    .filter(p -> proxyName.equals(p.getName()))
+                                    .findFirst()
+                                    .ifPresent(p -> p.getApiProducts().add(
+                                            product.getTitle() != null ? product.getTitle() : product.getName()));
+                        }
+                    }
+
+                    log.info("API Management: {} proxies, {} products", proxies.size(), products.size());
+                } catch (Exception e) {
+                    log.warn("API Management extraction failed (non-fatal): {}", e.getMessage());
+                }
+            } else {
+                log.warn("API Management extraction enabled but apim.base.url not configured — skipping");
+            }
+        }
+
         cb.onProgress("Finalizing...", 0.95);
         result.computeSummary();
         cb.onProgress("Extraction complete", 1.0);
         return result;
+    }
+
+    // =========================================================================
+    // API Management Fetching
+    // =========================================================================
+
+    private List<ApiProxy> fetchApiProxies(String apimBaseUrl) throws IOException {
+        String endpoint = apimBaseUrl + "/apiportal/api/1.0/Management.svc/APIProxies";
+        log.info("Fetching API Proxies from {}", endpoint);
+        List<ApiProxy> proxies = fetchAll(endpoint, ApiProxy.class);
+        log.info("Found {} API Proxies", proxies.size());
+
+        // Try to fetch target endpoint URLs for each proxy
+        for (ApiProxy proxy : proxies) {
+            try {
+                String teEndpoint = endpoint + "('" + proxy.getName() + "')/targetEndPoints";
+                String json = httpClient.get(teEndpoint + "?$format=json");
+                // Parse target URL from response
+                List<Map<String, Object>> targets = parseODataResults(json);
+                if (!targets.isEmpty()) {
+                    Object url = targets.get(0).get("url");
+                    if (url == null) url = targets.get(0).get("name");
+                    if (url != null) proxy.setTargetUrl(String.valueOf(url));
+                }
+            } catch (Exception e) {
+                log.debug("Could not fetch targetEndPoints for proxy {}: {}", proxy.getName(), e.getMessage());
+            }
+        }
+        return proxies;
+    }
+
+    private List<ApiProduct> fetchApiProducts(String apimBaseUrl) throws IOException {
+        String endpoint = apimBaseUrl + "/apiportal/api/1.0/Management.svc/APIProducts";
+        log.info("Fetching API Products from {}", endpoint);
+        List<ApiProduct> products = fetchAll(endpoint, ApiProduct.class);
+        log.info("Found {} API Products", products.size());
+
+        // Fetch proxy associations for each product
+        for (ApiProduct product : products) {
+            try {
+                String proxyEndpoint = endpoint + "('" + product.getName() + "')/apiProxies";
+                String json = httpClient.get(proxyEndpoint + "?$format=json");
+                List<Map<String, Object>> proxyResults = parseODataResults(json);
+                for (Map<String, Object> pr : proxyResults) {
+                    Object name = pr.get("name");
+                    if (name != null) product.getApiProxies().add(String.valueOf(name));
+                }
+            } catch (Exception e) {
+                log.debug("Could not fetch apiProxies for product {}: {}", product.getName(), e.getMessage());
+            }
+        }
+        return products;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> parseODataResults(String json) {
+        try {
+            Map<String, Object> root = mapper.readValue(json, Map.class);
+            Object d = root.get("d");
+            if (d instanceof Map) {
+                Object results = ((Map<String, Object>) d).get("results");
+                if (results instanceof List) return (List<Map<String, Object>>) results;
+                // Single entity (no results array)
+                return List.of((Map<String, Object>) d);
+            }
+            return Collections.emptyList();
+        } catch (Exception e) {
+            return Collections.emptyList();
+        }
     }
 
     // =========================================================================

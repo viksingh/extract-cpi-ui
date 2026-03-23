@@ -120,6 +120,11 @@ public class MainController {
     @FXML private TableView<PackageDepRow> packageDepsTable;
     @FXML private TableView<ApiCallRow> apiCallsTable;
 
+    // API Management
+    @FXML private TextField apimBaseUrlField;
+    @FXML private TableView<ApiProxyRow> apiProxiesTable;
+    @FXML private TableView<ApiIFlowLinkRow> apiIFlowLinksTable;
+
     // Package filter pane
     @FXML private TitledPane packageFilterPane;
 
@@ -166,6 +171,8 @@ public class MainController {
         initFlowChainsTable();
         initUniqueInterfacesTable();
         initPackageDepsTable();
+        initApiProxiesTable();
+        initApiIFlowLinksTable();
         initApiCallsTable();
 
         // Re-apply filter automatically whenever filter settings change after data is loaded
@@ -1268,6 +1275,88 @@ public class MainController {
         // Package Dependencies & Flow Dependencies tabs — run dependency analysis
         populateDependencyTabs(result, flowToPackage);
 
+        // API Proxies tab
+        List<ApiProxyRow> proxyRows = new ArrayList<>();
+        if (result.getApiProxies() != null) {
+            for (ApiProxy proxy : result.getApiProxies()) {
+                proxyRows.add(new ApiProxyRow(
+                        proxy.getName() != null ? proxy.getName() : "",
+                        proxy.getTitle() != null ? proxy.getTitle() : "",
+                        proxy.getBasePath() != null ? proxy.getBasePath() : "",
+                        proxy.getTargetUrl() != null ? proxy.getTargetUrl() : "",
+                        proxy.getState() != null ? proxy.getState() : "",
+                        String.join(", ", proxy.getApiProducts()),
+                        proxy.getVirtualHost() != null ? proxy.getVirtualHost() : "",
+                        proxy.getModifiedAt() != null ? DateFilterUtil.formatCpiDate(proxy.getModifiedAt()) : ""));
+            }
+        }
+        apiProxiesTable.setItems(FXCollections.observableArrayList(proxyRows));
+
+        // API-iFlow Links tab — correlate API proxy targets with iFlow adapters
+        List<ApiIFlowLinkRow> linkRows = new ArrayList<>();
+        if (result.getApiProxies() != null && !result.getApiProxies().isEmpty()) {
+            // Build sender address lookup: address path -> flow
+            Map<String, IntegrationFlow> senderAddressMap = new LinkedHashMap<>();
+            for (IntegrationFlow flow : result.getAllFlows()) {
+                if (flow.getIflowContent() == null) continue;
+                for (IFlowAdapter adapter : flow.getIflowContent().getAdapters()) {
+                    if (!"sender".equalsIgnoreCase(adapter.getDirection())) continue;
+                    String addr = resolveAdapterAddress(adapter, flow);
+                    if (!addr.isBlank()) senderAddressMap.put(addr.toLowerCase(), flow);
+                }
+            }
+
+            for (ApiProxy proxy : result.getApiProxies()) {
+                String targetUrl = proxy.getTargetUrl();
+                if (targetUrl != null && !targetUrl.isBlank()) {
+                    // Match target URL against iFlow sender addresses
+                    String targetPath = extractPath(targetUrl).toLowerCase();
+                    for (Map.Entry<String, IntegrationFlow> entry : senderAddressMap.entrySet()) {
+                        if (targetPath.contains(entry.getKey()) || entry.getKey().contains(targetPath)) {
+                            IntegrationFlow flow = entry.getValue();
+                            String flowName = flow.getName() != null ? flow.getName() : flow.getId();
+                            linkRows.add(new ApiIFlowLinkRow(
+                                    proxy.getName(), proxy.getBasePath(),
+                                    "API → iFlow", flowName,
+                                    flowToPackage.getOrDefault(flowName, ""),
+                                    targetUrl,
+                                    String.join(", ", proxy.getApiProducts()),
+                                    proxy.getState(),
+                                    flow.getRuntimeStatus() != null ? flow.getRuntimeStatus() : ""));
+                        }
+                    }
+                }
+
+                // Match iFlow HTTP receiver adapters against API proxy base path
+                if (proxy.getBasePath() != null && !proxy.getBasePath().isBlank()) {
+                    String basePath = proxy.getBasePath().toLowerCase();
+                    for (IntegrationFlow flow : result.getAllFlows()) {
+                        if (flow.getIflowContent() == null) continue;
+                        for (IFlowAdapter adapter : flow.getIflowContent().getAdapters()) {
+                            if (!"receiver".equalsIgnoreCase(adapter.getDirection())) continue;
+                            String type = adapter.getAdapterType() != null ? adapter.getAdapterType().toLowerCase() : "";
+                            if (!type.contains("http")) continue;
+                            String addr = resolveAdapterAddress(adapter, flow);
+                            if (addr.isBlank()) continue;
+                            String addrPath = extractPath(addr).toLowerCase();
+                            if (addrPath.contains(basePath)) {
+                                String flowName = flow.getName() != null ? flow.getName() : flow.getId();
+                                linkRows.add(new ApiIFlowLinkRow(
+                                        proxy.getName(), proxy.getBasePath(),
+                                        "iFlow → API", flowName,
+                                        flowToPackage.getOrDefault(flowName, ""),
+                                        addr,
+                                        String.join(", ", proxy.getApiProducts()),
+                                        proxy.getState(),
+                                        flow.getRuntimeStatus() != null ? flow.getRuntimeStatus() : ""));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        apiIFlowLinksTable.setItems(FXCollections.observableArrayList(linkRows));
+
         // API Calls tab
         List<ApiCallRow> apiCallRows = new ArrayList<>();
         for (CpiHttpClient.ApiCallRecord rec : result.getApiCallLog()) {
@@ -1629,6 +1718,88 @@ public class MainController {
     }
 
     @SuppressWarnings("unchecked")
+    private void initApiProxiesTable() {
+        TableColumn<ApiProxyRow, String> nameCol = new TableColumn<>("Name");
+        nameCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().name()));
+        nameCol.setMinWidth(200); nameCol.setPrefWidth(250);
+
+        TableColumn<ApiProxyRow, String> titleCol = new TableColumn<>("Title");
+        titleCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().title()));
+        titleCol.setMinWidth(200); titleCol.setPrefWidth(250);
+
+        TableColumn<ApiProxyRow, String> basePathCol = new TableColumn<>("Base Path");
+        basePathCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().basePath()));
+        basePathCol.setPrefWidth(200);
+
+        TableColumn<ApiProxyRow, String> targetCol = new TableColumn<>("Target URL");
+        targetCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().targetUrl()));
+        targetCol.setMinWidth(250); targetCol.setPrefWidth(350);
+
+        TableColumn<ApiProxyRow, String> stateCol = new TableColumn<>("State");
+        stateCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().state()));
+        stateCol.setPrefWidth(100);
+
+        TableColumn<ApiProxyRow, String> productsCol = new TableColumn<>("Products");
+        productsCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().products()));
+        productsCol.setPrefWidth(200);
+
+        TableColumn<ApiProxyRow, String> vhostCol = new TableColumn<>("Virtual Host");
+        vhostCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().virtualHost()));
+        vhostCol.setPrefWidth(150);
+
+        TableColumn<ApiProxyRow, String> modifiedCol = new TableColumn<>("Modified At");
+        modifiedCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().modifiedAt()));
+        modifiedCol.setPrefWidth(160);
+
+        apiProxiesTable.getColumns().addAll(nameCol, titleCol, basePathCol, targetCol,
+                stateCol, productsCol, vhostCol, modifiedCol);
+        apiProxiesTable.setColumnResizePolicy(TableView.UNCONSTRAINED_RESIZE_POLICY);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void initApiIFlowLinksTable() {
+        TableColumn<ApiIFlowLinkRow, String> proxyCol = new TableColumn<>("API Proxy");
+        proxyCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().apiProxy()));
+        proxyCol.setMinWidth(200); proxyCol.setPrefWidth(250);
+
+        TableColumn<ApiIFlowLinkRow, String> basePathCol = new TableColumn<>("Base Path");
+        basePathCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().apiBasePath()));
+        basePathCol.setPrefWidth(180);
+
+        TableColumn<ApiIFlowLinkRow, String> dirCol = new TableColumn<>("Direction");
+        dirCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().direction()));
+        dirCol.setPrefWidth(120);
+
+        TableColumn<ApiIFlowLinkRow, String> flowCol = new TableColumn<>("iFlow");
+        flowCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().iflowName()));
+        flowCol.setMinWidth(200); flowCol.setPrefWidth(250);
+
+        TableColumn<ApiIFlowLinkRow, String> pkgCol = new TableColumn<>("Package");
+        pkgCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().iflowPackage()));
+        pkgCol.setMinWidth(200); pkgCol.setPrefWidth(250);
+
+        TableColumn<ApiIFlowLinkRow, String> matchCol = new TableColumn<>("Matched URL");
+        matchCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().matchedUrl()));
+        matchCol.setPrefWidth(250);
+
+        TableColumn<ApiIFlowLinkRow, String> productsCol = new TableColumn<>("API Products");
+        productsCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().apiProducts()));
+        productsCol.setPrefWidth(200);
+
+        TableColumn<ApiIFlowLinkRow, String> stateCol = new TableColumn<>("Proxy State");
+        stateCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().proxyState()));
+        stateCol.setPrefWidth(100);
+
+        TableColumn<ApiIFlowLinkRow, String> statusCol = new TableColumn<>("iFlow Status");
+        statusCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().iflowStatus()));
+        statusCol.setPrefWidth(100);
+
+        apiIFlowLinksTable.getColumns().addAll(proxyCol, basePathCol, dirCol, flowCol,
+                pkgCol, matchCol, productsCol, stateCol, statusCol);
+        apiIFlowLinksTable.setColumnResizePolicy(TableView.UNCONSTRAINED_RESIZE_POLICY);
+    }
+
+    @SuppressWarnings("unchecked")
     private void initApiCallsTable() {
         TableColumn<ApiCallRow, String> methodCol = new TableColumn<>("Method");
         methodCol.setCellValueFactory(cd -> new SimpleStringProperty(cd.getValue().method()));
@@ -1892,6 +2063,13 @@ public class MainController {
         props.setProperty("filter.date.mode",
                 filterMode != null ? filterMode.name() : DateFilterUtil.FilterMode.MODIFIED_SINCE.name());
 
+        // API Management — auto-enable if URL is provided
+        String apimUrl = apimBaseUrlField.getText() != null ? apimBaseUrlField.getText().trim() : "";
+        props.setProperty("extract.apim", String.valueOf(!apimUrl.isBlank()));
+        if (!apimUrl.isBlank()) {
+            props.setProperty("apim.base.url", apimUrl);
+        }
+
         return props;
     }
 
@@ -1961,6 +2139,16 @@ public class MainController {
 
     public record ApiCallRow(String method, String path, int statusCode, String duration) {}
 
+    public record ApiProxyRow(String name, String title, String basePath,
+                               String targetUrl, String state, String products,
+                               String virtualHost, String modifiedAt) {}
+
+    public record ApiIFlowLinkRow(String apiProxy, String apiBasePath,
+                                    String direction, String iflowName,
+                                    String iflowPackage, String matchedUrl,
+                                    String apiProducts, String proxyState,
+                                    String iflowStatus) {}
+
     // E2: Added runtimeStatus and deployedStatus fields
     public record IFlowUsageRow(String packageName, String flowName, int total, int completed, int failed,
                                 int retry, int escalated, String lastExecution, String lastStatus,
@@ -2009,6 +2197,18 @@ public class MainController {
             "pgp.secret.keyring.alias", "pgpsecretkeyringalias",
             "pgp.public.keyring.alias", "pgppublickeyringalias"
     );
+
+    private static String extractPath(String url) {
+        if (url == null) return "";
+        try {
+            java.net.URI uri = java.net.URI.create(url);
+            String path = uri.getPath();
+            return path != null ? path : url;
+        } catch (Exception e) {
+            // Not a valid URI, return as-is
+            return url;
+        }
+    }
 
     private static boolean isInternalAdapterType(String type) {
         if (type == null) return false;
